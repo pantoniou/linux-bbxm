@@ -2130,6 +2130,7 @@ static struct omap_hwmod omap3xxx_counter_32k_hwmod = {
 			.idlest_idle_bit = OMAP3430_ST_32KSYNC_SHIFT,
 		},
 	},
+	.flags		= HWMOD_ALWAYS_FORCE_SIDLE,
 };
 
 /*

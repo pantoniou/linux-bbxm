@@ -1290,8 +1290,9 @@ static void _enable_sysc(struct omap_hwmod *oh)
 			      oh->clkdm->flags & CLKDM_ACTIVE_WITH_MPU) ||
 			     (oh->_clk && oh->_clk->clkdm &&
 			      oh->_clk->clkdm->flags & CLKDM_ACTIVE_WITH_MPU));
-		if (clkdm_act && !(oh->class->sysc->idlemodes &
-				   (SIDLE_SMART | SIDLE_SMART_WKUP)))
+		if ((clkdm_act && !(oh->class->sysc->idlemodes &
+				   (SIDLE_SMART | SIDLE_SMART_WKUP))) ||
+				(oh->flags & HWMOD_ALWAYS_FORCE_SIDLE))
 			idlemode = HWMOD_IDLEMODE_FORCE;
 		else
 			idlemode = (oh->flags & HWMOD_SWSUP_SIDLE) ?

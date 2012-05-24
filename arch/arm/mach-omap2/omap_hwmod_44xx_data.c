@@ -423,6 +423,7 @@ static struct omap_hwmod omap44xx_counter_32k_hwmod = {
 			.context_offs = OMAP4_RM_WKUP_SYNCTIMER_CONTEXT_OFFSET,
 		},
 	},
+	.flags		= HWMOD_ALWAYS_FORCE_SIDLE,
 };
 
 /*
