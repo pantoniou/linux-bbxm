@@ -255,6 +255,8 @@ config SPI_OMAP_UWIRE
 config SPI_OMAP24XX
 	tristate "McSPI driver for OMAP"
 	depends on ARCH_OMAP2PLUS
+	select DMADEVICES
+	select DMA_OMAP
 	help
 	  SPI master controller for OMAP24XX and later Multichannel SPI
 	  (McSPI) modules.
