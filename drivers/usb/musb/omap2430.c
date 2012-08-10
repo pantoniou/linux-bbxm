@@ -252,7 +252,7 @@ static inline void omap2430_low_level_init(struct musb *musb)
 	musb_writel(musb->mregs, OTG_FORCESTDBY, l);
 }
 
-void omap_musb_mailbox(enum omap_musb_vbus_id_status status)
+static void omap_musb_mailbox_actual(enum omap_musb_vbus_id_status status)
 {
 	struct omap2430_glue	*glue = _glue;
 	struct musb		*musb = glue_to_musb(glue);
@@ -265,7 +265,6 @@ void omap_musb_mailbox(enum omap_musb_vbus_id_status status)
 
 	schedule_work(&glue->omap_musb_mailbox_work);
 }
-EXPORT_SYMBOL_GPL(omap_musb_mailbox);
 
 static void omap_musb_set_mailbox(struct omap2430_glue *glue)
 {
@@ -479,6 +478,7 @@ static int __devinit omap2430_probe(struct platform_device *pdev)
 	struct resource			*res;
 	int				ret = -ENOMEM;
 	int				musbid;
+	enum omap_musb_vbus_id_status	status;
 
 	glue = devm_kzalloc(&pdev->dev, sizeof(*glue), GFP_KERNEL);
 	if (!glue) {
@@ -584,6 +584,11 @@ static int __devinit omap2430_probe(struct platform_device *pdev)
 		goto err2;
 	}
 
+	/* set callback and process last status */
+	status = omap_musb_mailbox_set_callback(omap_musb_mailbox_actual);
+	if (status != OMAP_MUSB_UNKNOWN)
+		omap_musb_mailbox_actual(status);
+
 	return 0;
 
 err2:
@@ -600,6 +605,7 @@ static int __devexit omap2430_remove(struct platform_device *pdev)
 {
 	struct omap2430_glue		*glue = platform_get_drvdata(pdev);
 
+	omap_musb_mailbox_set_callback(NULL);
 	cancel_work_sync(&glue->omap_musb_mailbox_work);
 	musb_put_id(&pdev->dev, glue->musb->id);
 	platform_device_unregister(glue->musb);

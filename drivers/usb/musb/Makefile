@@ -12,6 +12,7 @@ musb_hdrc-$(CONFIG_DEBUG_FS)			+= musb_debugfs.o
 
 # Hardware Glue Layer
 obj-$(CONFIG_USB_MUSB_OMAP2PLUS)		+= omap2430.o
+obj-$(CONFIG_USB_MUSB_OMAP2PLUS_MBOX_HELPER)	+= omap2430_mboxhelper.o
 obj-$(CONFIG_USB_MUSB_AM35X)			+= am35x.o
 obj-$(CONFIG_USB_MUSB_DSPS)			+= musb_dsps.o
 obj-$(CONFIG_USB_MUSB_TUSB6010)			+= tusb6010.o

@@ -18,12 +18,22 @@ enum omap_musb_vbus_id_status {
 	OMAP_MUSB_VBUS_OFF,
 };
 
-#if (defined(CONFIG_USB_MUSB_OMAP2PLUS) || \
-				defined(CONFIG_USB_MUSB_OMAP2PLUS_MODULE))
+#ifdef CONFIG_USB_MUSB_OMAP2PLUS_MBOX_HELPER
 void omap_musb_mailbox(enum omap_musb_vbus_id_status status);
+enum omap_musb_vbus_id_status omap_musb_mailbox_set_callback(
+		void (*func)(enum omap_musb_vbus_id_status));
 #else
-static inline void omap_musb_mailbox(enum omap_musb_vbus_id_status status)
+static inline void
+omap_musb_mailbox(enum omap_musb_vbus_id_status status)
 {
+	/* nothing */
+}
+
+static inline enum omap_musb_vbus_id_status
+omap_musb_mailbox_set_callback(void (*func)(enum omap_musb_vbus_id_status))
+{
+	/* always return unknown */
+	return OMAP_MUSB_UNKNOWN;
 }
 #endif
 
