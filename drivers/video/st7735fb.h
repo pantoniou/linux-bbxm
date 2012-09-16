@@ -9,8 +9,8 @@
  */
 
 #define DRVNAME		"st7735fb"
-#define WIDTH		128
-#define HEIGHT		160
+#define WIDTH		160
+#define HEIGHT		128
 #define BPP		16
 #define MAX_PALETTE	16
 

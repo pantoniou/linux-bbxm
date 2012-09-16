@@ -70,7 +70,7 @@ static struct st7735_function st7735_cfg_script[] = {
 	{ ST7735_DATA, 0x0e},
 	{ ST7735_CMD, ST7735_INVOFF},
 	{ ST7735_CMD, ST7735_MADCTL},
-	{ ST7735_DATA, 0xc8},
+	{ ST7735_DATA, 0x68},
 	{ ST7735_CMD, ST7735_COLMOD},
 	{ ST7735_DATA, 0x05},
 	{ ST7735_CMD, ST7735_CASET},
@@ -401,7 +401,7 @@ static struct fb_ops st7735fb_ops = {
 };
 
 static struct fb_deferred_io st7735fb_defio = {
-	.delay		= HZ/20,
+	.delay		= HZ/25,
 	.deferred_io	= st7735fb_deferred_io,
 };
 
