@@ -884,49 +884,271 @@ static inline void update_cfs_shares(struct cfs_rq *cfs_rq)
 
 /* Only depends on SMP, FAIR_GROUP_SCHED may be removed when useful in lb */
 #if defined(CONFIG_SMP) && defined(CONFIG_FAIR_GROUP_SCHED)
-/*
- * We choose a half-life close to 1 scheduling period.
- * Note: The tables below are dependent on this value.
- */
-#define LOAD_AVG_PERIOD 32
-#define LOAD_AVG_MAX 47742 /* maximum possible load avg */
-#define LOAD_AVG_MAX_N 345 /* number of full periods to produce LOAD_MAX_AVG */
 
-/* Precomputed fixed inverse multiplies for multiplication by y^n */
-static const u32 runnable_avg_yN_inv[] = {
-	0xffffffff, 0xfa83b2da, 0xf5257d14, 0xefe4b99a, 0xeac0c6e6, 0xe5b906e6,
-	0xe0ccdeeb, 0xdbfbb796, 0xd744fcc9, 0xd2a81d91, 0xce248c14, 0xc9b9bd85,
-	0xc5672a10, 0xc12c4cc9, 0xbd08a39e, 0xb8fbaf46, 0xb504f333, 0xb123f581,
-	0xad583ee9, 0xa9a15ab4, 0xa5fed6a9, 0xa2704302, 0x9ef5325f, 0x9b8d39b9,
-	0x9837f050, 0x94f4efa8, 0x91c3d373, 0x8ea4398a, 0x8b95c1e3, 0x88980e80,
-	0x85aac367, 0x82cd8698,
+/* maximum load avg period */
+#define LOAD_AVG_TABLE_MAX_PERIOD_LOG2	12
+#define LOAD_AVG_TABLE_MAX_PERIOD	(1 << LOAD_AVG_TABLE_MAX_PERIOD_LOG2)
+
+struct sched_load_avg_table_data {
+	int period_log2;
+	u32 factor;	/* scaled cpu power */
+	int max_period;	/* maximum period (when y^n * factor = 1) */
+	u32 avg_max;	/* maximum sum when at the max period */
+	u32 runnable_avg_yN_inv[LOAD_AVG_TABLE_MAX_PERIOD];
+	u32 runnable_avg_yN_sum[LOAD_AVG_TABLE_MAX_PERIOD + 1];
 };
 
-/*
- * Precomputed \Sum y^k { 1<=k<=n }.  These are floor(true_value) to prevent
- * over-estimates when re-combining.
- */
-static const u32 runnable_avg_yN_sum[] = {
-	    0, 1002, 1982, 2941, 3880, 4798, 5697, 6576, 7437, 8279, 9103,
-	 9909,10698,11470,12226,12966,13690,14398,15091,15769,16433,17082,
-	17718,18340,18949,19545,20128,20698,21256,21802,22336,22859,23371,
+struct sched_load_avg_tables {
+	const struct sched_load_avg_table_data *data;
+	u32 cpu_power;
 };
+
+/* this is the default, before initializing */
+static const struct sched_load_avg_table_data default_avg_table_data = {
+	.period_log2 	= 5,
+	.factor 	= 1024,
+	.max_period 	= 320,
+	.avg_max 	= 46718,
+	/* Precomputed fixed inverse multiplies for multiplication by y^n */
+	.runnable_avg_yN_inv = {
+		0xffffffff, 0xfa83b2db, 0xf5257d15, 0xefe4b99b, 0xeac0c6e7, 0xe5b906e7,
+		0xe0ccdeec, 0xdbfbb797, 0xd744fcca, 0xd2a81d91, 0xce248c15, 0xc9b9bd86,
+		0xc5672a11, 0xc12c4cca, 0xbd08a39f, 0xb8fbaf47, 0xb504f333, 0xb123f581,
+		0xad583eea, 0xa9a15ab4, 0xa5fed6a9, 0xa2704303, 0x9ef53260, 0x9b8d39b9,
+		0x9837f051, 0x94f4efa8, 0x91c3d373, 0x8ea4398b, 0x8b95c1e3, 0x88980e80,
+		0x85aac367, 0x82cd8698,
+	},
+	/* Precomputed \Sum y^k { 1<=k<=n } */
+	.runnable_avg_yN_sum = {
+		    0, 1002, 1982, 2941, 3880, 4798, 5697, 6576, 7437, 8279, 9103,
+		 9909,10698,11470,12226,12966,13690,14398,15091,15769,16433,17082,
+		17718,18340,18949,19545,20128,20698,21256,21802,22336,22859,23371,
+	}
+};
+
+static const struct sched_load_avg_tables default_avg_tables = {
+	.data = &default_avg_table_data,
+	.cpu_power = SCHED_POWER_SCALE,
+};
+
+static atomic_t load_avg_tables_init = ATOMIC_INIT(0);
+static struct sched_load_avg_table_data load_avg_table_data;
+static DEFINE_PER_CPU(struct sched_load_avg_tables, load_avg_tables);
+static atomic_t default_avg_tables_uses = ATOMIC_INIT(0);
+
+#define FIX(x)	((u64)(x) << 32)
+
+/* calculate 2^n root of 2 */
+#define NROOT_OF_2_ACCURACY	10
+static u64 nroot_of_2(unsigned int n)
+{
+	unsigned int i, k;
+	u64 xkn, t1;
+	u64 xk;
+
+	xk = FIX(1) - 1;
+	for (i = 0; i < NROOT_OF_2_ACCURACY; i++) {
+		/* calculate xkn = x ^ (2 ^ n)) */
+		/* be careful not to overflow */
+		xkn = xk;
+		for (k = 0; k < n; k++)
+			xkn = SRR((xkn >> 1) * (xkn >> 1), 30);
+
+		t1 =  (xk >> 1) * (xkn >> 1) -
+		      (xk >> 1) * (xkn >> (n + 1)) +
+		             xk * (FIX(2) >> (n + 2));
+		xk = div64_u64(t1, xkn >> 2);
+	}
+
+	return xk;
+}
+
+/* return 1/root(2, 2^n)) */
+static u32 inv_nroot_of_2(unsigned int n)
+{
+	return (u32)div64_u64(-1LLU, nroot_of_2(n));
+}
+
+void sched_dump_load_avg_table(const struct sched_load_avg_table_data *d)
+{
+	int i;
+	int period;
+
+	period = 1 << d->period_log2;
+
+	/* OK, now print all */
+	printk(KERN_INFO "LAT dump of table with period %d\n", period);
+	printk(KERN_INFO "  .period_log2 = %d, .factor = %d\n",
+			d->period_log2, d->factor);
+	printk(KERN_INFO "  .max_period = %d, .avg_max = %d\n",
+			d->max_period, d->avg_max);
+
+	printk(KERN_INFO "  runnable_avg_yN_inv = {\n");
+	for (i = 0; i < period; i++) {
+		if ((i % 8) == 0)
+			printk(KERN_INFO "      0x%08x,",
+					d->runnable_avg_yN_inv[i]);
+		else
+			printk(" 0x%08x,",
+					d->runnable_avg_yN_inv[i]);
+		if ((i % 8) == 7)
+			printk("\n");
+	}
+	if ((i % 8) != 0)
+		printk("\n");
+
+	printk(KERN_INFO "  runnable_avg_yN_sum = {\n");
+	for (i = 0; i < period + 1; i++) {
+		if ((i % 8) == 0)
+			printk(KERN_INFO "      %u,",
+					d->runnable_avg_yN_sum[i]);
+		else
+			printk(" %u,",
+					d->runnable_avg_yN_sum[i]);
+		if ((i % 8) == 7)
+			printk("\n");
+	}
+	if ((i % 8) != 0)
+		printk("\n");
+}
+
+void sched_init_load_avg_table(
+		struct sched_load_avg_table_data *d, int period_log2, unsigned int factor)
+{
+	u32 yinv, yinvt, yinvsum;
+	unsigned int period;
+	u32 *p1, *p2;
+	int i;
+
+	period = 1 << period_log2;
+
+	BUG_ON(period >= ARRAY_SIZE(d->runnable_avg_yN_inv));
+	BUG_ON(period + 1 >= ARRAY_SIZE(d->runnable_avg_yN_sum));
+
+	yinv = inv_nroot_of_2(period_log2);
+
+	d->period_log2 = period_log2;
+	d->factor = factor;
+	d->max_period = ilog2(roundup_pow_of_two(d->factor)) * period;
+	d->avg_max = div64_u64(FIX(d->factor), (FIX(1) - yinv));
+
+	p1 = d->runnable_avg_yN_inv;
+	*p1++ = FIX(1) - 1;
+	yinvt = yinv;
+
+	p2 = d->runnable_avg_yN_sum;
+	*p2++ = 0;
+
+	yinvsum = 0;
+	for (i = 1; i < period; i++) {
+		*p1++ = yinvt;
+
+		yinvsum += (u32)(((u64)yinvt * d->factor) >> 32);	/* not rounding! */
+		*p2++ = yinvsum;
+
+		yinvt = SRR((u64)yinvt * yinv, 32);
+	}
+
+	/* one more to finish up*/
+	yinvsum += (u32)(((u64)yinvt * d->factor) >> 32);		/* not rounding! */
+	*p2++ = yinvsum;
+}
+
+static __read_mostly int sched_lat_period = 32;
+
+static int __init sched_lat_period_setup(char *str)
+{
+	sched_lat_period = rounddown_pow_of_two(simple_strtoul(str, NULL, 10));
+	printk(KERN_INFO "sched: sched_lat_period set to %d\n", sched_lat_period);
+
+	return 0;
+}
+early_param("sched_lat_period", sched_lat_period_setup);
+
+static int __init load_avg_tables_setup(void)
+{
+	unsigned int cpu;
+	unsigned int period_log2;
+	unsigned int cpu_power;
+
+	period_log2 = ilog2(sched_lat_period);
+	sched_init_load_avg_table(&load_avg_table_data, period_log2, 1024);
+
+	printk(KERN_INFO "Initialized load average table data with period %d\n", sched_lat_period);
+	sched_dump_load_avg_table(&load_avg_table_data);
+
+	for_each_present_cpu(cpu) {
+		cpu_power = SCHED_POWER_SCALE;
+		per_cpu(load_avg_tables, cpu).data = &load_avg_table_data;
+		per_cpu(load_avg_tables, cpu).cpu_power = cpu_power;
+
+		printk(KERN_INFO "cpu%u: cpu_power is %u\n", cpu, cpu_power);
+	}
+
+	atomic_set(&load_avg_tables_init, 1);
+	mb();
+
+	if (atomic_read(&default_avg_tables_uses) > 0) {
+		printk(KERN_INFO "default load averable table used #%d times\n",
+				atomic_read(&default_avg_tables_uses));
+	}
+
+	return 1;
+}
+
+const struct sched_load_avg_tables *get_rq_lat(struct rq *rq)
+{
+	int cpu;
+
+	cpu = cpu_of(rq);
+
+	/* verify that this is initialized */
+	if (atomic_read(&load_avg_tables_init) == 0) {
+		/* use the default, but mark it's use */
+		atomic_inc(&default_avg_tables_uses);
+		return &default_avg_tables;
+	}
+
+	return &per_cpu(load_avg_tables, cpu);
+}
+
+const struct sched_load_avg_tables *get_cfs_rq_lat(struct cfs_rq *cfs_rq)
+{
+	return get_rq_lat(rq_of(cfs_rq));
+}
+
+const struct sched_load_avg_tables *get_se_lat(struct sched_entity *se)
+{
+	struct cfs_rq *cfs_rq;
+
+	if (entity_is_task(se))
+		cfs_rq = cfs_rq_of(se);
+	else
+		cfs_rq = group_cfs_rq(se);
+
+	return get_cfs_rq_lat(cfs_rq);
+}
 
 /*
  * Approximate:
  *   val * y^n,    where y^32 ~= 0.5 (~1 scheduling period)
  */
-static __always_inline u64 decay_load(u64 val, u64 n)
+static __always_inline u64 decay_load(
+		const struct sched_load_avg_tables *lat, u64 val, u64 n)
 {
 	unsigned int local_n;
+	const struct sched_load_avg_table_data *d = lat->data;
+	unsigned int period;
 
 	if (!n)
 		return val;
-	else if (unlikely(n > LOAD_AVG_PERIOD * 63))
+	else if (unlikely(n > d->max_period))
 		return 0;
 
 	/* after bounds checking we can collapse to 32-bit */
 	local_n = n;
+
+	period = 1 << d->period_log2;
 
 	/*
 	 * As y^PERIOD = 1/2, we can combine
@@ -935,13 +1157,12 @@ static __always_inline u64 decay_load(u64 val, u64 n)
 	 *
 	 * To achieve constant time decay_load.
 	 */
-	if (unlikely(local_n >= LOAD_AVG_PERIOD)) {
-		val >>= local_n / LOAD_AVG_PERIOD;
-		local_n %= LOAD_AVG_PERIOD;
+	if (unlikely(local_n >= period)) {
+		val >>= (local_n >> d->period_log2);
+		n &= (period - 1);
 	}
 
-	val *= runnable_avg_yN_inv[local_n];
-	/* We don't use SRR here since we always want to round down. */
+	val *= d->runnable_avg_yN_inv[local_n];
 	return val >> 32;
 }
 
@@ -952,25 +1173,29 @@ static __always_inline u64 decay_load(u64 val, u64 n)
  * We can compute this reasonably efficiently by combining:
  *   y^PERIOD = 1/2 with precomputed \Sum 1024*y^n {for  n <PERIOD}
  */
-static u32 __compute_runnable_contrib(u64 n)
+static u32 __compute_runnable_contrib(
+		const struct sched_load_avg_tables *lat, u64 n)
 {
+	const struct sched_load_avg_table_data *d = lat->data;
 	u32 contrib = 0;
+	unsigned int period;
 
-	if (likely(n <= LOAD_AVG_PERIOD))
-		return runnable_avg_yN_sum[n];
-	else if (unlikely(n >= LOAD_AVG_MAX_N))
-		return LOAD_AVG_MAX;
+	period = 1 << d->period_log2;
+	if (likely(n <= period))
+		return d->runnable_avg_yN_sum[n];
+	else if (unlikely(n >= d->max_period))
+		return d->avg_max;
 
 	/* Compute \Sum k^n combining precomputed values for k^i, \Sum k^j */
 	do {
-		contrib /= 2; /* y^LOAD_AVG_PERIOD = 1/2 */
-		contrib += runnable_avg_yN_sum[LOAD_AVG_PERIOD];
+		contrib >>= 1; /* y^LOAD_AVG_PERIOD = 1/2 */
+		contrib += d->runnable_avg_yN_sum[period];
 
-		n -= LOAD_AVG_PERIOD;
-	} while (n > LOAD_AVG_PERIOD);
+		n -= period;
+	} while (n > period);
 
-	contrib = decay_load(contrib, n);
-	return contrib + runnable_avg_yN_sum[n];
+	contrib = decay_load(lat, contrib, n);
+	return contrib + d->runnable_avg_yN_sum[n];
 }
 
 /*
@@ -1001,14 +1226,17 @@ static u32 __compute_runnable_contrib(u64 n)
  *   load_avg = u_0` + y*(u_0 + u_1*y + u_2*y^2 + ... )
  *            = u_0 + u_1*y + u_2*y^2 + ... [re-labeling u_i --> u_{i+1}]
  */
-static __always_inline int __update_entity_runnable_avg(u64 now,
-							struct sched_avg *sa,
-							int runnable,
-							int running)
+static __always_inline int __update_entity_runnable_avg(
+		const struct sched_load_avg_tables *lat,
+		u64 now, struct sched_avg *sa,
+		int runnable,
+		int running)
 {
 	u64 delta, periods;
 	u32 runnable_contrib;
+	u32 runnable_contrib_f;
 	int delta_w, decayed = 0;
+	u32 delta_f, delta_wf, load;
 
 	delta = now - sa->last_runnable_update;
 	/*
@@ -1025,7 +1253,7 @@ static __always_inline int __update_entity_runnable_avg(u64 now,
 	 * approximation of 1us and fast to compute.
 	 */
 	delta >>= 10;
-	if (!delta)
+	if (!delta)	/* NOTE: dropping bits here */
 		return 0;
 	sa->last_runnable_update = now;
 
@@ -1041,10 +1269,11 @@ static __always_inline int __update_entity_runnable_avg(u64 now,
 		 * period and accrue it.
 		 */
 		delta_w = 1024 - delta_w;
+		delta_wf = (delta_w * lat->cpu_power) >> SCHED_POWER_SHIFT;
 		if (runnable)
-			sa->runnable_avg_sum += delta_w;
+			sa->runnable_avg_sum += delta_wf;
 		if (running)
-			sa->usage_avg_sum += delta_w;
+			sa->usage_avg_sum += delta_wf;
 		sa->runnable_avg_period += delta_w;
 
 		delta -= delta_w;
@@ -1053,26 +1282,33 @@ static __always_inline int __update_entity_runnable_avg(u64 now,
 		periods = delta / 1024;
 		delta %= 1024;
 
-		sa->runnable_avg_sum = decay_load(sa->runnable_avg_sum,
-						  periods + 1);
-		sa->runnable_avg_period = decay_load(sa->runnable_avg_period,
-						     periods + 1);
-		sa->usage_avg_sum = decay_load(sa->usage_avg_sum, periods + 1);
+		load = decay_load(lat, sa->runnable_avg_sum, periods + 1);
+		sa->runnable_avg_sum = (load * lat->cpu_power) >> SCHED_POWER_SHIFT;
+
+		load = decay_load(lat, sa->usage_avg_sum, periods + 1);
+		sa->usage_avg_sum = (load * lat->cpu_power) >> SCHED_POWER_SHIFT;
+
+		load = decay_load(lat, sa->runnable_avg_period, periods + 1);
+		sa->runnable_avg_period = (load * lat->cpu_power) >> SCHED_POWER_SHIFT;
 
 		/* Efficiently calculate \sum (1..n_period) 1024*y^i */
-		runnable_contrib = __compute_runnable_contrib(periods);
+		runnable_contrib = __compute_runnable_contrib(lat, periods);
+		runnable_contrib_f = (runnable_contrib * lat->cpu_power) >> SCHED_POWER_SHIFT;
 		if (runnable)
-			sa->runnable_avg_sum += runnable_contrib;
+			sa->runnable_avg_sum += runnable_contrib_f;
 		if (running)
-			sa->usage_avg_sum += runnable_contrib;
+			sa->usage_avg_sum += runnable_contrib_f;
 		sa->runnable_avg_period += runnable_contrib;
 	}
 
+	/* relative to cpu_power */
+	delta_f = ((u32)delta * lat->cpu_power) >> SCHED_POWER_SHIFT;
+
 	/* Remainder of delta accrued against u_0` */
 	if (runnable)
-		sa->runnable_avg_sum += delta;
+		sa->runnable_avg_sum += delta_f;
 	if (running)
-		sa->usage_avg_sum += delta;
+		sa->usage_avg_sum += delta_f;
 	sa->runnable_avg_period += delta;
 
 	return decayed;
@@ -1088,7 +1324,9 @@ static inline u64 __synchronize_entity_decay(struct sched_entity *se)
 	if (!decays)
 		return 0;
 
-	se->avg.load_avg_contrib = decay_load(se->avg.load_avg_contrib, decays);
+	se->avg.load_avg_contrib = decay_load(
+			get_se_lat(se),
+			se->avg.load_avg_contrib, decays);
 	se->avg.decay_count = 0;
 
 	return decays;
@@ -1250,7 +1488,8 @@ static inline void update_entity_load_avg(struct sched_entity *se,
 	else
 		now = cfs_rq_clock_task(group_cfs_rq(se));
 
-	if (!__update_entity_runnable_avg(now, &se->avg, se->on_rq,
+	if (!__update_entity_runnable_avg(
+				get_se_lat(se), now, &se->avg, se->on_rq,
 					  cfs_rq->curr == se))
 		return;
 
@@ -1284,8 +1523,9 @@ static void update_cfs_rq_blocked_load(struct cfs_rq *cfs_rq, int force_update)
 	}
 
 	if (decays) {
-		cfs_rq->blocked_load_avg = decay_load(cfs_rq->blocked_load_avg,
-						      decays);
+		cfs_rq->blocked_load_avg = decay_load(
+				get_cfs_rq_lat(cfs_rq),
+				cfs_rq->blocked_load_avg, decays);
 		atomic64_add(decays, &cfs_rq->decay_counter);
 		cfs_rq->last_decay = now;
 	}
@@ -1297,8 +1537,8 @@ static void update_cfs_rq_blocked_load(struct cfs_rq *cfs_rq, int force_update)
 static inline void update_rq_runnable_avg(struct rq *rq, int runnable)
 {
 	u32 contrib;
-	__update_entity_runnable_avg(rq->clock_task, &rq->avg, runnable,
-				     runnable);
+	__update_entity_runnable_avg(get_rq_lat(rq),
+			rq->clock_task, &rq->avg, runnable, runnable);
 	__update_tg_runnable_avg(&rq->avg, &rq->cfs);
 	contrib = rq->avg.runnable_avg_sum * scale_load_down(1024);
 	contrib /= (rq->avg.runnable_avg_period + 1);
@@ -4223,7 +4463,7 @@ void update_group_power(struct sched_domain *sd, int cpu)
 		/*
 		 * !SD_OVERLAP domains can assume that child groups
 		 * span the current group.
-		 */ 
+		 */
 
 		group = child->groups;
 		do {
@@ -6287,6 +6527,7 @@ __init void init_sched_fair_class(void)
 #ifdef CONFIG_SCHED_HMP
 	hmp_cpu_mask_setup();
 #endif
+	load_avg_tables_setup();
 #endif /* SMP */
 
 }
