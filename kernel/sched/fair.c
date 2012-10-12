@@ -26,6 +26,7 @@
 #include <linux/slab.h>
 #include <linux/profile.h>
 #include <linux/interrupt.h>
+#include <linux/cpufreq.h>
 
 #include <trace/events/sched.h>
 
@@ -1065,24 +1066,105 @@ static int __init sched_lat_period_setup(char *str)
 }
 early_param("sched_lat_period", sched_lat_period_setup);
 
+extern unsigned long __weak arch_scale_freq_power(struct sched_domain *sd, int cpu);
+
+#ifdef CONFIG_CPU_FREQ
+
+static int load_avg_cpufreq_transition(struct notifier_block *nb,
+	unsigned long state, void *data)
+{
+	struct cpufreq_freqs *freqs = data;
+	struct sched_load_avg_tables *lat;
+	int cpu;
+	unsigned int cpu_power;
+
+	if (state == CPUFREQ_POSTCHANGE || state == CPUFREQ_RESUMECHANGE) {
+
+		cpu = freqs->cpu;
+		lat = &per_cpu(load_avg_tables, freqs->cpu);
+
+		/* this is mainly done to avoid calling arch_scale_freq_power */
+		/* in the main scheduler loop */
+		cpu_power = arch_scale_freq_power(NULL, freqs->cpu);
+		if (cpu_power > SCHED_POWER_SCALE) {
+			pr_debug("sched: cpu%d got illegal cpu_power value %u\n",
+					freqs->cpu, cpu_power);
+			cpu_power = SCHED_POWER_SCALE;
+		}
+		lat->cpu_power = cpu_power;
+		mb();
+	}
+
+	return NOTIFY_OK;
+}
+
+static struct notifier_block load_avg_cpufreq_nb = {
+	.notifier_call = load_avg_cpufreq_transition,
+};
+
+static int __init load_avg_cpufreq_init(void)
+{
+	int ret;
+	int cpu;
+	unsigned int cpu_power;
+
+	printk(KERN_INFO "sched: Registering load avg cpufreq notifier\n");
+
+	/* make sure we pick up any late changes */
+	for_each_present_cpu(cpu) {
+		cpu_power = arch_scale_freq_power(NULL, cpu);
+		if (cpu_power > SCHED_POWER_SCALE) {
+			printk(KERN_INFO "sched: cpu%d illegal cpu_power %u\n",
+					cpu, cpu_power);
+			cpu_power = SCHED_POWER_SCALE;
+		}
+		if (cpu_power != per_cpu(load_avg_tables, cpu).cpu_power) {
+			per_cpu(load_avg_tables, cpu).cpu_power = cpu_power;
+			printk(KERN_INFO "sched: cpu%u cpu_power is %u\n",
+					cpu, cpu_power);
+		}
+	}
+
+	ret = cpufreq_register_notifier(&load_avg_cpufreq_nb,
+			CPUFREQ_TRANSITION_NOTIFIER);
+	if (ret != 0)
+		printk(KERN_ERR "sched: load avg cpufreq notifier register failed!\n");
+	return ret;
+}
+late_initcall(load_avg_cpufreq_init);
+
+#endif
+
 static int __init load_avg_tables_setup(void)
 {
 	unsigned int cpu;
 	unsigned int period_log2;
 	unsigned int cpu_power;
+	int ret;
 
 	period_log2 = ilog2(sched_lat_period);
 	sched_init_load_avg_table(&load_avg_table_data, period_log2, 1024);
 
-	printk(KERN_INFO "Initialized load average table data with period %d\n", sched_lat_period);
+	printk(KERN_INFO "sched: Initialized load average table data with period %d\n", sched_lat_period);
 	sched_dump_load_avg_table(&load_avg_table_data);
 
 	for_each_present_cpu(cpu) {
-		cpu_power = SCHED_POWER_SCALE;
+		cpu_power = arch_scale_freq_power(NULL, cpu);
+		if (cpu_power > SCHED_POWER_SCALE) {
+			printk(KERN_INFO "sched: cpu%d got illegal cpu_power value %u\n",
+					cpu, cpu_power);
+			cpu_power = SCHED_POWER_SCALE;
+		}
 		per_cpu(load_avg_tables, cpu).data = &load_avg_table_data;
 		per_cpu(load_avg_tables, cpu).cpu_power = cpu_power;
 
-		printk(KERN_INFO "cpu%u: cpu_power is %u\n", cpu, cpu_power);
+		printk(KERN_INFO "sched: cpu%u cpu_power is %u\n", cpu, cpu_power);
+	}
+
+	ret = cpufreq_register_notifier(&load_avg_cpufreq_nb,
+			CPUFREQ_TRANSITION_NOTIFIER);
+	if (ret != 0) {
+		printk(KERN_ERR "sched: failed to register load_avg cpu freq notifier\n");
 	}
 
 	atomic_set(&load_avg_tables_init, 1);
@@ -4405,6 +4487,7 @@ static void update_cpu_power(struct sched_domain *sd, int cpu)
 	unsigned long power = SCHED_POWER_SCALE;
 	struct sched_group *sdg = sd->groups;
 
+	/* TODO: investigate lat->cpu_power update here */
 	if ((sd->flags & SD_SHARE_CPUPOWER) && weight > 1) {
 		if (sched_feat(ARCH_POWER))
 			power *= arch_scale_smt_power(sd, cpu);
