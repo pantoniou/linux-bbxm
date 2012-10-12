@@ -3485,13 +3485,29 @@ static int __init hmp_cpu_mask_setup(void)
  * hmp_next_up_threshold: Delay before next up migration (1024 ~= 1 ms)
  * hmp_next_down_threshold: Delay before next down migration (1024 ~= 1 ms)
  */
-unsigned int hmp_up_threshold = 512;
-unsigned int hmp_down_threshold = 256;
+unsigned int __read_mostly hmp_up_threshold = 512;
+unsigned int __read_mostly hmp_down_threshold = 256;
 #ifdef CONFIG_SCHED_HMP_PRIO_FILTER
-unsigned int hmp_up_prio = NICE_TO_PRIO(CONFIG_SCHED_HMP_PRIO_FILTER_VAL);
+unsigned int __read_mostly hmp_up_prio = NICE_TO_PRIO(CONFIG_SCHED_HMP_PRIO_FILTER_VAL);
 #endif
-unsigned int hmp_next_up_threshold = 4096;
-unsigned int hmp_next_down_threshold = 4096;
+unsigned int __read_mostly hmp_next_up_threshold = 4096;
+unsigned int __read_mostly hmp_next_down_threshold = 4096;
+
+static int __init sched_hmp_up_threshold(char *str)
+{
+	hmp_up_threshold = simple_strtoul(str, NULL, 10);
+	printk(KERN_INFO "sched: hmp_up_threshold set to %d\n", hmp_up_threshold);
+	return 0;
+}
+early_param("sched_hmp_up_threshold", sched_hmp_up_threshold);
+
+static int __init sched_hmp_down_threshold(char *str)
+{
+	hmp_down_threshold = simple_strtoul(str, NULL, 10);
+	printk(KERN_INFO "sched: hmp_down_threshold set to %d\n", hmp_down_threshold);
+	return 0;
+}
+early_param("sched_hmp_down_threshold", sched_hmp_down_threshold);
 
 static unsigned int hmp_up_migration(int cpu, struct sched_entity *se);
 static unsigned int hmp_down_migration(int cpu, struct sched_entity *se);
@@ -5839,6 +5855,8 @@ static unsigned int hmp_up_migration(int cpu, struct sched_entity *se)
 {
 	struct task_struct *p = task_of(se);
 	struct cfs_rq *cfs_rq = &cpu_rq(cpu)->cfs;
+	const struct sched_load_avg_tables *lat;
+	unsigned int thresh;
 	u64 now;
 
 	if (hmp_cpu_is_fastest(cpu))
@@ -5856,12 +5874,15 @@ static unsigned int hmp_up_migration(int cpu, struct sched_entity *se)
 					< hmp_next_up_threshold)
 		return 0;
 
-	if (cpumask_intersects(&hmp_faster_domain(cpu)->cpus,
-					tsk_cpus_allowed(p))
-		&& se->avg.load_avg_ratio > hmp_up_threshold) {
-		return 1;
-	}
-	return 0;
+	if (!cpumask_intersects(&hmp_faster_domain(cpu)->cpus,
+					tsk_cpus_allowed(p)))
+		return 0;
+
+	/* normalize hmp_up_threshold by the slow cpu maximum */
+	lat = &per_cpu(load_avg_tables, cpu);
+	thresh = (hmp_up_threshold * lat->cpu_power) >> SCHED_POWER_SHIFT;
+
+	return se->avg.load_avg_ratio > thresh;
 }
 
 /* Check if task should migrate to a slower cpu */
@@ -5869,6 +5890,8 @@ static unsigned int hmp_down_migration(int cpu, struct sched_entity *se)
 {
 	struct task_struct *p = task_of(se);
 	struct cfs_rq *cfs_rq = &cpu_rq(cpu)->cfs;
+	const struct sched_load_avg_tables *lat;
+	unsigned int thresh;
 	u64 now;
 
 	if (hmp_cpu_is_slowest(cpu))
@@ -5889,12 +5912,14 @@ static unsigned int hmp_down_migration(int cpu, struct sched_entity *se)
 					< hmp_next_down_threshold)
 		return 0;
 
-	if (cpumask_intersects(&hmp_slower_domain(cpu)->cpus,
-					tsk_cpus_allowed(p))
-		&& se->avg.load_avg_ratio < hmp_down_threshold) {
-		return 1;
-	}
-	return 0;
+	if (!cpumask_intersects(&hmp_slower_domain(cpu)->cpus,
+					tsk_cpus_allowed(p)))
+		return 0;
+
+	lat = &per_cpu(load_avg_tables, cpu);
+	thresh = (hmp_down_threshold * lat->cpu_power) >> SCHED_POWER_SHIFT;
+
+	return se->avg.load_avg_ratio < thresh;
 }
 
 /*
