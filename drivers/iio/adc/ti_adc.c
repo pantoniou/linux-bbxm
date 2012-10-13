@@ -20,9 +20,11 @@
 #include <linux/slab.h>
 #include <linux/interrupt.h>
 #include <linux/platform_device.h>
-#include <linux/io.h>
 #include <linux/iio/iio.h>
+#include <linux/iio/machine.h>
+#include <linux/iio/driver.h>
 
+#include <asm/io.h>
 #include <linux/mfd/ti_tscadc.h>
 #include <linux/platform_data/ti_adc.h>
 
@@ -30,6 +32,8 @@ struct adc_device {
 	struct ti_tscadc_dev *mfd_tscadc;
 	struct iio_dev *idev;
 	int channels;
+	char *buf;
+	struct iio_map *map;
 };
 
 static unsigned int adc_readl(struct adc_device *adc, unsigned int reg)
@@ -76,20 +80,28 @@ static void adc_step_config(struct adc_device *adc_dev)
 static int tiadc_channel_init(struct iio_dev *idev, struct adc_device *adc_dev)
 {
 	struct iio_chan_spec *chan_array;
-	int i;
+	struct iio_chan_spec *chan;
+	char *s;
+	int i, len, size, ret;
 
 	idev->num_channels = adc_dev->channels;
-	chan_array = kcalloc(idev->num_channels, sizeof(struct iio_chan_spec),
-					GFP_KERNEL);
 
+	size = idev->num_channels * (sizeof(struct iio_chan_spec) + 6);
+	chan_array = kzalloc(size, GFP_KERNEL);
 	if (chan_array == NULL)
 		return -ENOMEM;
 
-	for (i = 0; i < (idev->num_channels); i++) {
-		struct iio_chan_spec *chan = chan_array + i;
+	/* buffer space is after the array */
+	s = (char *)(chan_array + idev->num_channels);
+	chan = chan_array;
+	for (i = 0; i < idev->num_channels; i++, chan++, s += len + 1) {
+
+		len = sprintf(s, "AIN%d", i);
+
 		chan->type = IIO_VOLTAGE;
 		chan->indexed = 1;
 		chan->channel = i;
+		chan->datasheet_name = s;
 		chan->scan_type.sign = 'u';
 		chan->scan_type.realbits = 12;
 		chan->scan_type.storagebits = 32;
@@ -97,6 +109,30 @@ static int tiadc_channel_init(struct iio_dev *idev, struct adc_device *adc_dev)
 	}
 
 	idev->channels = chan_array;
+
+	size = (idev->num_channels + 1) * sizeof(struct iio_map);
+	adc_dev->map = kzalloc(size, GFP_KERNEL);
+	if (adc_dev->map == NULL) {
+		kfree(chan_array);
+		return -ENOMEM;
+	}
+
+	for (i = 0; i < idev->num_channels; i++) {
+		adc_dev->map[i].adc_channel_label = chan_array[i].datasheet_name;
+		adc_dev->map[i].consumer_dev_name = "any";
+		adc_dev->map[i].consumer_channel = chan_array[i].datasheet_name;
+	}
+	adc_dev->map[i].adc_channel_label = NULL;
+	adc_dev->map[i].consumer_dev_name = NULL;
+	adc_dev->map[i].consumer_channel = NULL;
+
+	ret = iio_map_array_register(idev, adc_dev->map);
+	if (ret != 0) {
+		kfree(adc_dev->map);
+		kfree(chan_array);
+		return -ENOMEM;
+	}
+
 	return idev->num_channels;
 }
 
@@ -175,7 +211,6 @@ static int __devinit tiadc_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, idev);
 
 	return 0;
-
 err_unregister:
 	tiadc_channel_remove(idev);
 err_cleanup_channels:
