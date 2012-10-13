@@ -4,3 +4,10 @@ config CAPEBUS_BONE_DVI
 	default n
 	help
 	  "Select this to enable a driver for the DVI cape"
+
+config CAPEBUS_BONE_GEIGER
+	tristate "Beaglebone Geiger cape driver"
+	depends on CAPEBUS_BONE_CONTROLLER
+	default n
+	help
+	  "Select this to enable a driver for the geiger cape"
