@@ -397,7 +397,7 @@
 
 	event-blink-delay = <30>;	/* 30ms */
 
-	gpios = <&gpio3 17 0>;		/* pulse */
+	gpios = <&gpio4 17 0>;		/* pulse */
 
 	vsense-name = "AIN5";		/* analog vsense */
 	vsense-scale = <37325>;		/* scaling */
@@ -409,14 +409,14 @@
 
 		geiger-led0 {
 			label = "geiger:green:usr0";
-			gpios = <&gpio2 23 0>;
+			gpios = <&gpio3 23 0>;
 			linux,default-trigger = "geiger-run";
 			default-state = "off";
 		};
 
 		geiger-led1 {
 			label = "geiger:red:usr1";
-			gpios = <&gpio2 25 0>;
+			gpios = <&gpio3 25 0>;
 			linux,default-trigger = "geiger-event";
 			default-state = "off";
 		};
