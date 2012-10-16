@@ -346,7 +346,7 @@
 			compatible = "da8xx-dt";
 			pinctrl-names = "default";
 			pinctrl-0 = <&bone_dvi_cape_dvi_00A0_pins>;
-			powerdn-gpio = <&gpio1 7 0>;
+			powerdn-gpio = <&gpio2 7 0>;
 			ti,hwmods = "lcdc";
 		};
 	};
@@ -357,7 +357,7 @@
 			compatible = "da8xx-dt";
 			pinctrl-names = "default";
 			pinctrl-0 = <&bone_dvi_cape_dvi_00A1_pins>;
-			powerdn-gpio = <&gpio1 31 0>;
+			powerdn-gpio = <&gpio2 31 0>;
 			ti,hwmods = "lcdc";
 		};
 	};
@@ -369,14 +369,14 @@
 
 		dvi-led0 {
 			label = "dvi:green:usr0";
-			gpios = <&gpio1 18 0>;
+			gpios = <&gpio2 18 0>;
 			linux,default-trigger = "heartbeat";
 			default-state = "off";
 		};
 
 		dvi-led1 {
 			label = "dvi:green:usr1";
-			gpios = <&gpio1 19 0>;
+			gpios = <&gpio2 19 0>;
 			linux,default-trigger = "mmc0";
 			default-state = "off";
 		};
