@@ -248,6 +248,10 @@ const struct cape_device_id *bone_capebus_get_dev_id(struct cape_slot *slot)
 	struct cape_device_id *id;
 	const u8 *p;
 	int r;
+	char board_name[32+1];
+	char version[4+1];
+	char manufacturer[16+1];
+	char part_number[16+1];
 
 	id = &bone_slot->id;
 
@@ -288,8 +292,21 @@ const struct cape_device_id *bone_capebus_get_dev_id(struct cape_slot *slot)
 		bone_slot->id.data = bone_slot->eeprom_signature;
 
 		bone_capebus_id_get_field(id, BONE_CAPEBUS_BOARD_NAME,
-					bone_slot->text_id,
-					sizeof(bone_slot->text_id));
+					board_name, sizeof(board_name));
+		bone_capebus_id_get_field(id, BONE_CAPEBUS_VERSION,
+					version, sizeof(version));
+		bone_capebus_id_get_field(id, BONE_CAPEBUS_MANUFACTURER,
+					manufacturer, sizeof(manufacturer));
+		bone_capebus_id_get_field(id, BONE_CAPEBUS_PART_NUMBER,
+					part_number, sizeof(part_number));
+
+		/* board_name,version,manufacturer,part_number */
+		snprintf(bone_slot->text_id, sizeof(bone_slot->text_id) - 1,
+				"%s,%s,%s,%s", board_name, version,
+				manufacturer, part_number);
+
+		/* terminate always */
+		bone_slot->text_id[sizeof(bone_slot->text_id) - 1] = '\0';
 
 	}
 

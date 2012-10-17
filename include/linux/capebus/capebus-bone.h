@@ -34,7 +34,7 @@ struct bone_capebus_slot {
 	unsigned int		eeprom_failed : 1;
 	unsigned int		eeprom_override : 1;
 	struct cape_device_id	id;
-	char			text_id[32 + 1];
+	char			text_id[256];
 	char			eeprom_signature[256];
 };
 
