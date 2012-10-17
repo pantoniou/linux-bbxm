@@ -458,7 +458,7 @@ static int __devinit dsps_create_musb_pdev(struct dsps_glue *glue, u8 id)
 	struct platform_device	*musb;
 	struct resource *res;
 	struct resource	resources[2];
-	char res_name[10];
+	char res_name[11];
 	int ret, musbid;
 
 	/* get memory resource */
