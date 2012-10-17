@@ -196,14 +196,14 @@
 			};
 
 			/* overrides; no EEPROM (prototyping) */
-			override@0 {
-				compatible = "bone-capebus-slot-override";
-				slot = <0>;
-				board-name = "Geiger Cape";
-				version = "00A0";
-				manufacturer = "Geiger Inc";
-				/* TODO: Add the rest */
-			};
+//			override@3 {
+//				compatible = "bone-capebus-slot-override";
+//				slot = <3>;
+//				board-name = "Geiger Cape";
+//				version = "00A0";
+//				manufacturer = "Geiger Inc";
+//				/* TODO: Add the rest */
+//			};
 	};
 };
 
