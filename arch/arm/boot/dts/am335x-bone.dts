@@ -134,6 +134,47 @@
 				0x19c 0x37 	/* mcasp0_ahclkr.gpio3_17, OMAP_MUX_MODE4 | INPUT_PULLUP */
 			>;
 		};
+
+		bone_lcd3_cape_led_00A0_pins: pinmux_bone_lcd3_cape_led_00A0_pins {
+			pinctrl-single,pins = <
+				0x48 0x07	/* gpmc_a2.gpio1_18, OUTPUT | MODE7 */
+			>;
+		};
+
+		bone_lcd3_cape_lcd_pins: pinmux_bone_lcd3_cape_lcd_pins {
+			pinctrl-single,pins = <
+				0xa0 0x08	/* lcd_data0.lcd_data0, OMAP_MUX_MODE0 | AM33XX_PIN_OUTPUT | AM33XX_PULL_DISA */
+				0xa4 0x08	/* lcd_data1.lcd_data1, OMAP_MUX_MODE0 | AM33XX_PIN_OUTPUT | AM33XX_PULL_DISA */
+				0xa8 0x08	/* lcd_data2.lcd_data2, OMAP_MUX_MODE0 | AM33XX_PIN_OUTPUT | AM33XX_PULL_DISA */
+				0xac 0x08	/* lcd_data3.lcd_data3, OMAP_MUX_MODE0 | AM33XX_PIN_OUTPUT | AM33XX_PULL_DISA */
+				0xb0 0x08	/* lcd_data4.lcd_data4, OMAP_MUX_MODE0 | AM33XX_PIN_OUTPUT | AM33XX_PULL_DISA */
+				0xb4 0x08	/* lcd_data5.lcd_data5, OMAP_MUX_MODE0 | AM33XX_PIN_OUTPUT | AM33XX_PULL_DISA */
+				0xb8 0x08	/* lcd_data6.lcd_data6, OMAP_MUX_MODE0 | AM33XX_PIN_OUTPUT | AM33XX_PULL_DISA */
+				0xbc 0x08	/* lcd_data7.lcd_data7, OMAP_MUX_MODE0 | AM33XX_PIN_OUTPUT | AM33XX_PULL_DISA */
+				0xc0 0x08	/* lcd_data8.lcd_data8, OMAP_MUX_MODE0 | AM33XX_PIN_OUTPUT | AM33XX_PULL_DISA */
+				0xc4 0x08	/* lcd_data9.lcd_data9, OMAP_MUX_MODE0 | AM33XX_PIN_OUTPUT | AM33XX_PULL_DISA */
+				0xc8 0x08	/* lcd_data10.lcd_data10, OMAP_MUX_MODE0 | AM33XX_PIN_OUTPUT | AM33XX_PULL_DISA */
+				0xcc 0x08	/* lcd_data11.lcd_data11, OMAP_MUX_MODE0 | AM33XX_PIN_OUTPUT | AM33XX_PULL_DISA */
+				0xd0 0x08	/* lcd_data12.lcd_data12, OMAP_MUX_MODE0 | AM33XX_PIN_OUTPUT | AM33XX_PULL_DISA */
+				0xd4 0x08	/* lcd_data13.lcd_data13, OMAP_MUX_MODE0 | AM33XX_PIN_OUTPUT | AM33XX_PULL_DISA */
+				0xd8 0x08	/* lcd_data14.lcd_data14, OMAP_MUX_MODE0 | AM33XX_PIN_OUTPUT | AM33XX_PULL_DISA */
+				0xdc 0x08	/* lcd_data15.lcd_data15, OMAP_MUX_MODE0 | AM33XX_PIN_OUTPUT | AM33XX_PULL_DISA */
+				0xe0 0x00	/* lcd_vsync.lcd_vsync, OMAP_MUX_MODE0 | AM33XX_PIN_OUTPUT */
+				0xe4 0x00	/* lcd_hsync.lcd_hsync, OMAP_MUX_MODE0 | AM33XX_PIN_OUTPUT */
+				0xe8 0x00	/* lcd_pclk.lcd_pclk, OMAP_MUX_MODE0 | AM33XX_PIN_OUTPUT */
+				0xec 0x00	/* lcd_ac_bias_en.lcd_ac_bias_en, OMAP_MUX_MODE0 | AM33XX_PIN_OUTPUT */
+			>;
+		};
+
+		bone_lcd3_cape_keys_00A0_pins: pinmux_bone_lcd3_cape_keys_00A0_pins {
+			pinctrl-single,pins = <
+				0x040 0x2f	/* gpmc_a0.gpio1_16, INPUT | PULLDIS | MODE7 */
+				0x044 0x2f	/* gpmc_a1.gpio1_17, INPUT | PULLDIS | MODE7 */
+				0x1a4 0x2f	/* mcasp0_fsr.gpio3_19, INPUT | PULLDIS | MODE7 */
+				0x078 0x2f	/* gpmc_ben1.gpio1_28, INPUT | PULLDIS | MODE7 */
+				0x164 0x2f	/* ecap0_in_pwm0_out.gpio0_7, INPUT | PULLDIS | MODE7 */
+			>;
+		};
 	};
 
 	ocp {
@@ -193,6 +234,10 @@
 
 			bone_geiger_cape: cape@1 {
 				compatible = "bone-geiger-cape";
+			};
+
+			bone_lcd3_cape: cape@2 {
+				compatible = "bone-lcd3-cape";
 			};
 
 			/* overrides; no EEPROM (prototyping) */
@@ -295,6 +340,7 @@
 			regulator-always-on;
 		};
 	};
+
 };
 
 &mmc1 {
@@ -419,6 +465,94 @@
 			gpios = <&gpio3 25 0>;
 			linux,default-trigger = "geiger-event";
 			default-state = "off";
+		};
+	};
+};
+
+&bone_lcd3_cape {
+	board-name = "BeagleBone LCD3 CAPE";
+
+	/* hacky, since this is not a proper DT platform device */
+	/* but until we have DT bindings... */
+	lcd3 {
+		compatible = "da8xx-dt";
+		pinctrl-names = "default";
+		pinctrl-0 = <&bone_lcd3_cape_lcd_pins>;
+		ti,hwmods = "lcdc";
+	};
+
+	version@00A0 {
+		version = "00A0";
+
+		backlight {
+			compatible = "tps65217-backlight";
+			isel = <1>;
+			fdim = <200>;
+
+			tps = <&tps>;	/* link to the tps */
+			brightness = <100>;
+		};
+
+		gpio-leds {
+			compatible = "gpio-leds";
+			pinctrl-names = "default";
+			pinctrl-0 = <&bone_lcd3_cape_led_00A0_pins>;
+
+			lcd3-led0 {
+				label = "lcd3:green:usr0";
+				gpios = <&gpio2 18 0>;
+				linux,default-trigger = "heartbeat";
+				default-state = "off";
+			};
+		};
+
+		gpio_keys {
+			compatible = "gpio-keys";
+			pinctrl-names = "default";
+			pinctrl-0 = <&bone_lcd3_cape_keys_00A0_pins>;
+
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			button@1 {
+				debounce_interval = <50>;
+				linux,code = <105>;
+				label = "left";
+				gpios = <&gpio2 16 0x0>;
+				gpio-key,wakeup;
+				autorepeat;
+			};
+			button@2 {
+				debounce_interval = <50>;
+				linux,code = <106>;
+				label = "right";
+				gpios = <&gpio2 17 0x0>;
+				gpio-key,wakeup;
+				autorepeat;
+			};
+			button@3 {
+				debounce_interval = <50>;
+				linux,code = <103>;
+				label = "up";
+				gpios = <&gpio4 19 0x0>;
+				gpio-key,wakeup;
+				autorepeat;
+			};
+			button@4 {
+				debounce_interval = <50>;
+				linux,code = <108>;
+				label = "down";
+				gpios = <&gpio2 28 0x0>;
+				gpio-key,wakeup;
+				autorepeat;
+			};
+			button@5 {
+				debounce_interval = <50>;
+				linux,code = <28>;
+				label = "enter";
+				gpios = <&gpio1 7 0x0>;
+				gpio-key,wakeup;
+			};
 		};
 	};
 };
