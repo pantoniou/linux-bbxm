@@ -12,9 +12,9 @@ config CAPEBUS_BONE_GEIGER
 	help
 	  "Select this to enable a driver for the geiger cape"
 
-config CAPEBUS_BONE_LCD3
-	tristate "Beaglebone LCD3 cape driver"
+config CAPEBUS_BONE_LCD
+	tristate "Beaglebone LCD[347] cape driver"
 	depends on CAPEBUS_BONE_CONTROLLER
 	default n
 	help
-	  "Select this to enable a driver for the LCD3 cape"
+	  "Select this to enable a driver for the LCD3,LCD4,LCD7 capes"

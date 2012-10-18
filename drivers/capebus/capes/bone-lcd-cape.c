@@ -1,5 +1,5 @@
 /*
- * Driver for beaglebone LCD3 cape
+ * Driver for beaglebone LCD[347] cape
  *
  */
 
@@ -32,18 +32,18 @@
 #include <linux/capebus/capebus-bone.h>
 
 /* fwd decl. */
-extern struct cape_driver bonelcd3_driver;
+extern struct cape_driver bonelcd_driver;
 
 struct da8xx_priv {
-	struct da8xx_lcdc_platform_data lcd3_pdata;
-	struct lcd_ctrl_config lcd3_cfg;
-	struct display_panel lcd3_panel;
+	struct da8xx_lcdc_platform_data lcd_pdata;
+	struct lcd_ctrl_config lcd_cfg;
+	struct display_panel lcd_panel;
 	struct platform_device *lcdc_pdev;
 	struct omap_hwmod *lcdc_oh;
 	struct resource lcdc_res[1];
 };
 
-struct bone_lcd3_info {
+struct bone_lcd_info {
 	struct cape_dev *dev;
 	struct platform_device *leds_pdev;
 	struct platform_device *da8xx_pdev;
@@ -57,13 +57,13 @@ struct bone_lcd3_info {
 	struct platform_device *tscadc_pdev;
 };
 
-static const struct of_device_id bonelcd3_of_match[] = {
+static const struct of_device_id bonelcd_of_match[] = {
 	{
-		.compatible = "bone-lcd3-cape",
+		.compatible = "bone-lcd-cape",
 	},
 	{ },
 };
-MODULE_DEVICE_TABLE(of, bonelcd3_of_match);
+MODULE_DEVICE_TABLE(of, bonelcd_of_match);
 
 static const struct of_device_id of_da8xx_dt_match[] = {
 	{ .compatible = "da8xx-dt", },
@@ -102,31 +102,31 @@ static int __devinit da8xx_dt_probe(struct platform_device *pdev)
 	}
 
 	/* display_panel */
-	priv->lcd3_panel.panel_type	= QVGA;
-	priv->lcd3_panel.max_bpp	= 16;
-	priv->lcd3_panel.min_bpp	= 16;
-	priv->lcd3_panel.panel_shade	= COLOR_ACTIVE;
+	priv->lcd_panel.panel_type	= QVGA;
+	priv->lcd_panel.max_bpp	= 16;
+	priv->lcd_panel.min_bpp	= 16;
+	priv->lcd_panel.panel_shade	= COLOR_ACTIVE;
 
 	/* lcd_ctrl_config */
-	priv->lcd3_cfg.p_disp_panel	= &priv->lcd3_panel;
-	priv->lcd3_cfg.ac_bias		= 255;
-	priv->lcd3_cfg.ac_bias_intrpt	= 0;
-	priv->lcd3_cfg.dma_burst_sz	= 16;
-	priv->lcd3_cfg.bpp		= 16;
-	priv->lcd3_cfg.fdd		= 0x80;
-	priv->lcd3_cfg.tft_alt_mode	= 0;
-	priv->lcd3_cfg.stn_565_mode	= 0;
-	priv->lcd3_cfg.mono_8bit_mode	= 0;
-	priv->lcd3_cfg.invert_line_clock= 1;
-	priv->lcd3_cfg.invert_frm_clock	= 1;
-	priv->lcd3_cfg.sync_edge	= 0;
-	priv->lcd3_cfg.sync_ctrl	= 1;
-	priv->lcd3_cfg.raster_order	= 0;
+	priv->lcd_cfg.p_disp_panel	= &priv->lcd_panel;
+	priv->lcd_cfg.ac_bias		= 255;
+	priv->lcd_cfg.ac_bias_intrpt	= 0;
+	priv->lcd_cfg.dma_burst_sz	= 16;
+	priv->lcd_cfg.bpp		= 16;
+	priv->lcd_cfg.fdd		= 0x80;
+	priv->lcd_cfg.tft_alt_mode	= 0;
+	priv->lcd_cfg.stn_565_mode	= 0;
+	priv->lcd_cfg.mono_8bit_mode	= 0;
+	priv->lcd_cfg.invert_line_clock= 1;
+	priv->lcd_cfg.invert_frm_clock	= 1;
+	priv->lcd_cfg.sync_edge	= 0;
+	priv->lcd_cfg.sync_ctrl	= 1;
+	priv->lcd_cfg.raster_order	= 0;
 
 	/* da8xx_lcdc_platform_data */
-	strcpy(priv->lcd3_pdata.manu_name, "BBToys");
-	priv->lcd3_pdata.controller_data = &priv->lcd3_cfg;
-	strcpy(priv->lcd3_pdata.type, "CDTech_S035Q01");
+	strcpy(priv->lcd_pdata.manu_name, "BBToys");
+	priv->lcd_pdata.controller_data = &priv->lcd_cfg;
+	strcpy(priv->lcd_pdata.type, "CDTech_S035Q01");
 
 	priv->lcdc_oh = omap_hwmod_lookup("lcdc");
 	if (priv->lcdc_oh == NULL) {
@@ -135,7 +135,7 @@ static int __devinit da8xx_dt_probe(struct platform_device *pdev)
 	}
 
 	priv->lcdc_pdev = omap_device_build("da8xx_lcdc", 0, priv->lcdc_oh,
-			&priv->lcd3_pdata,
+			&priv->lcd_pdata,
 			sizeof(struct da8xx_lcdc_platform_data),
 			NULL, 0, 0);
 	if (priv->lcdc_pdev == NULL) {
@@ -143,7 +143,7 @@ static int __devinit da8xx_dt_probe(struct platform_device *pdev)
 		return -ENODEV;
 	}
 
-	dev_info(&pdev->dev, "Registered bone LCD3 cape OK.\n");
+	dev_info(&pdev->dev, "Registered bone LCD cape OK.\n");
 
 	platform_set_drvdata(pdev, priv);
 
@@ -167,7 +167,7 @@ static struct platform_driver da8xx_dt_driver = {
 
 static atomic_t da8xx_dt_driver_used = ATOMIC_INIT(0);
 
-static int bonelcd3_probe(struct cape_dev *dev, const struct cape_device_id *id)
+static int bonelcd_probe(struct cape_dev *dev, const struct cape_device_id *id)
 {
 	static const struct of_device_id gpio_leds_of_match[] = {
 		{ .compatible = "gpio-leds", }, { },
@@ -186,7 +186,7 @@ static int bonelcd3_probe(struct cape_dev *dev, const struct cape_device_id *id)
 	const char *board_name;
 	const char *version;
 	const struct of_device_id *match;
-	struct bone_lcd3_info *info;
+	struct bone_lcd_info *info;
 	struct pinctrl *pinctrl;
 	int err;
 
@@ -236,7 +236,7 @@ static int bonelcd3_probe(struct cape_dev *dev, const struct cape_device_id *id)
 	info = dev->drv_priv;
 
 	info->leds_pdev = capebus_of_platform_compatible_device_create(dev,
-			gpio_leds_of_match, "lcd3-cape-leds",
+			gpio_leds_of_match, "lcd-cape-leds",
 			"version", version);
 	if (IS_ERR(info->leds_pdev)) {
 		info->leds_pdev = NULL;
@@ -249,7 +249,7 @@ static int bonelcd3_probe(struct cape_dev *dev, const struct cape_device_id *id)
 	dev_info(&dev->dev, "LED pdev created OK\n");
 
 	info->tps_bl_pdev = capebus_of_platform_compatible_device_create(dev,
-			tps_bl_of_match, "lcd3-cape-bl",
+			tps_bl_of_match, "lcd-cape-bl",
 			"version", version);
 	if (IS_ERR(info->tps_bl_pdev)) {
 		info->tps_bl_pdev = NULL;
@@ -268,7 +268,7 @@ static int bonelcd3_probe(struct cape_dev *dev, const struct cape_device_id *id)
 	dev_info(&dev->dev, "Backlight pdev created OK\n");
 
 	info->keys_pdev = capebus_of_platform_compatible_device_create(dev,
-			gpio_keys_of_match, "lcd3-cape-keys",
+			gpio_keys_of_match, "lcd-cape-keys",
 			"version", version);
 	if (IS_ERR(info->keys_pdev)) {
 		info->keys_pdev = NULL;
@@ -305,7 +305,7 @@ static int bonelcd3_probe(struct cape_dev *dev, const struct cape_device_id *id)
 	dev_info(&dev->dev, "TI tscadc pdev created OK\n");
 
 	info->da8xx_pdev = capebus_of_platform_compatible_device_create(dev,
-			da8xx_dt_of_match, "lcd3-cape-da8xx",
+			da8xx_dt_of_match, "lcd-cape-da8xx",
 			"version", version);
 	if (IS_ERR(info->da8xx_pdev)) {
 		info->da8xx_pdev = NULL;
@@ -340,24 +340,24 @@ err_no_mem:
 	return err;
 }
 
-static void bonelcd3_remove(struct cape_dev *dev)
+static void bonelcd_remove(struct cape_dev *dev)
 {
 	dev_info(&dev->dev, "%s\n", __func__);
 }
 
-struct cape_driver bonelcd3_driver = {
+struct cape_driver bonelcd_driver = {
 	.driver = {
-		.name		= "bonelcd3",
+		.name		= "bonelcd",
 		.owner		= THIS_MODULE,
-		.of_match_table	= bonelcd3_of_match,
+		.of_match_table	= bonelcd_of_match,
 	},
-	.probe		= bonelcd3_probe,
-	.remove		= bonelcd3_remove,
+	.probe		= bonelcd_probe,
+	.remove		= bonelcd_remove,
 };
 
-module_capebus_driver(bonelcd3_driver);
+module_capebus_driver(bonelcd_driver);
 
 MODULE_AUTHOR("Pantelis Antoniou");
-MODULE_DESCRIPTION("Beaglebone LCD3 cape");
+MODULE_DESCRIPTION("Beaglebone LCD cape");
 MODULE_LICENSE("GPL");
-MODULE_ALIAS("platform:bone-lcd3-cape");
+MODULE_ALIAS("platform:bone-lcd-cape");
