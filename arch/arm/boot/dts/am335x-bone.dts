@@ -138,6 +138,7 @@
 		bone_lcd3_cape_led_00A0_pins: pinmux_bone_lcd3_cape_led_00A0_pins {
 			pinctrl-single,pins = <
 				0x48 0x07	/* gpmc_a2.gpio1_18, OUTPUT | MODE7 */
+				0x4c 0x07	/* gpmc_a3.gpio1_19, OUTPUT | MODE7 */
 			>;
 		};
 
@@ -238,6 +239,10 @@
 
 			bone_lcd3_cape: cape@2 {
 				compatible = "bone-lcd3-cape";
+			};
+
+			bone_lcd7_cape: cape@3 {
+				compatible = "bone-lcd7-cape";
 			};
 
 			/* overrides; no EEPROM (prototyping) */
@@ -392,8 +397,11 @@
 			compatible = "da8xx-dt";
 			pinctrl-names = "default";
 			pinctrl-0 = <&bone_dvi_cape_dvi_00A0_pins>;
-			powerdn-gpio = <&gpio2 7 0>;
 			ti,hwmods = "lcdc";
+
+			disp-pll = <560000000>;
+			panel-type = "1024x768@60";
+			powerdn-gpio = <&gpio2 7 0>;
 		};
 	};
 
@@ -403,8 +411,11 @@
 			compatible = "da8xx-dt";
 			pinctrl-names = "default";
 			pinctrl-0 = <&bone_dvi_cape_dvi_00A1_pins>;
-			powerdn-gpio = <&gpio2 31 0>;
 			ti,hwmods = "lcdc";
+
+			disp-pll = <560000000>;
+			panel-type = "1024x768@60";
+			powerdn-gpio = <&gpio2 31 0>;
 		};
 	};
 
@@ -478,7 +489,11 @@
 		compatible = "da8xx-dt";
 		pinctrl-names = "default";
 		pinctrl-0 = <&bone_lcd3_cape_lcd_pins>;
+
 		ti,hwmods = "lcdc";
+
+		disp-pll = <16000000>;
+		panel-type = "CDTech_S035Q01";
 	};
 
 	version@00A0 {
@@ -502,6 +517,112 @@
 				label = "lcd3:green:usr0";
 				gpios = <&gpio2 18 0>;
 				linux,default-trigger = "heartbeat";
+				default-state = "off";
+			};
+
+			lcd3-led1 {
+				label = "lcd3:green:usr1";
+				gpios = <&gpio2 19 0>;
+				linux,default-trigger = "cpu0";
+				default-state = "off";
+			};
+		};
+
+		gpio_keys {
+			compatible = "gpio-keys";
+			pinctrl-names = "default";
+			pinctrl-0 = <&bone_lcd3_cape_keys_00A0_pins>;
+
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			button@1 {
+				debounce_interval = <50>;
+				linux,code = <105>;
+				label = "left";
+				gpios = <&gpio2 16 0x0>;
+				gpio-key,wakeup;
+				autorepeat;
+			};
+			button@2 {
+				debounce_interval = <50>;
+				linux,code = <106>;
+				label = "right";
+				gpios = <&gpio2 17 0x0>;
+				gpio-key,wakeup;
+				autorepeat;
+			};
+			button@3 {
+				debounce_interval = <50>;
+				linux,code = <103>;
+				label = "up";
+				gpios = <&gpio4 19 0x0>;
+				gpio-key,wakeup;
+				autorepeat;
+			};
+			button@4 {
+				debounce_interval = <50>;
+				linux,code = <108>;
+				label = "down";
+				gpios = <&gpio2 28 0x0>;
+				gpio-key,wakeup;
+				autorepeat;
+			};
+			button@5 {
+				debounce_interval = <50>;
+				linux,code = <28>;
+				label = "enter";
+				gpios = <&gpio1 7 0x0>;
+				gpio-key,wakeup;
+			};
+		};
+	};
+};
+
+&bone_lcd7_cape {
+	board-name = "BeagleBone LCD7 CAPE";
+
+	/* hacky, since this is not a proper DT platform device */
+	/* but until we have DT bindings... */
+	lcd7 {
+		compatible = "da8xx-dt";
+		pinctrl-names = "default";
+		pinctrl-0 = <&bone_lcd3_cape_lcd_pins>;
+
+		ti,hwmods = "lcdc";
+
+		disp-pll = <60000000>;
+		panel-type = "TFC_S9700RTWV35TR_01B";
+	};
+
+	version@00A0 {
+		version = "00A0";
+
+		backlight {
+			compatible = "tps65217-backlight";
+			isel = <1>;
+			fdim = <200>;
+
+			tps = <&tps>;	/* link to the tps */
+			brightness = <100>;
+		};
+
+		gpio-leds {
+			compatible = "gpio-leds";
+			pinctrl-names = "default";
+			pinctrl-0 = <&bone_lcd3_cape_led_00A0_pins>;
+
+			lcd3-led0 {
+				label = "lcd3:green:usr0";
+				gpios = <&gpio2 18 0>;
+				linux,default-trigger = "heartbeat";
+				default-state = "off";
+			};
+
+			lcd3-led1 {
+				label = "lcd3:green:usr1";
+				gpios = <&gpio2 19 0>;
+				linux,default-trigger = "cpu0";
 				default-state = "off";
 			};
 		};

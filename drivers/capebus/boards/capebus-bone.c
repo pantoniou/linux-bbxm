@@ -660,6 +660,12 @@ bone_capebus_probe(struct platform_device *pdev)
 	devm_kfree(&pdev->dev, slot_handles);
 	slot_handles = NULL;
 
+	r = bone_capebus_register_pdev_adapters(bus);
+	if (r != 0) {
+		dev_err(&pdev->dev, "Failed to register the pdev adapters\n");
+		goto err_no_pdevs;
+	}
+
 	pm_runtime_enable(bus->dev);
 	r = pm_runtime_get_sync(bus->dev);
 	if (IS_ERR_VALUE(r)) {
@@ -674,6 +680,8 @@ bone_capebus_probe(struct platform_device *pdev)
 	return 0;
 
 err_exit:
+	bone_capebus_unregister_pdev_adapters(bus);
+err_no_pdevs:
 	platform_set_drvdata(pdev, NULL);
 
 	return r;

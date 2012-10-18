@@ -83,4 +83,8 @@ int bone_capebus_match_cntrlboard(const struct cape_device_id *id);
 int bone_capebus_match_board(const struct cape_device_id *id,
 		const char **board_names);
 
+/* in pdevs */
+int bone_capebus_register_pdev_adapters(struct bone_capebus_bus *bus);
+void bone_capebus_unregister_pdev_adapters(struct bone_capebus_bus *bus);
+
 #endif
