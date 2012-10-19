@@ -123,10 +123,10 @@ static int bonelcd_probe(struct cape_dev *dev, const struct cape_device_id *id)
 			gpio_leds_of_match, "lcd-cape-leds",
 			"version", version);
 	if (IS_ERR(info->leds_pdev)) {
-		info->leds_pdev = NULL;
 		dev_err(&dev->dev, "Failed to create platform led "
 				"platform device\n");
-		err = -ENODEV;
+		err = PTR_ERR(info->leds_pdev);
+		info->leds_pdev = NULL;
 		goto err_no_leds_pdev;
 	}
 
@@ -136,26 +136,24 @@ static int bonelcd_probe(struct cape_dev *dev, const struct cape_device_id *id)
 		info->bl_pdev = capebus_of_platform_compatible_device_create(dev,
 				tps_bl_of_match, "lcd-cape-bl",
 				"version", version);
+		if (IS_ERR(info->bl_pdev)) {
+			dev_warn(&dev->dev, "Failed to tps backlight "
+					"platform device\n");
+			err = PTR_ERR(info->bl_pdev);
+			info->bl_pdev = NULL;
+			goto err_no_bl_pdev;
+		}
+		dev_info(&dev->dev, "tps backlight pdev created OK\n");
 	}
-
-	if (IS_ERR(info->bl_pdev)) {
-		info->bl_pdev = NULL;
-		dev_warn(&dev->dev, "Failed to backlight "
-				"platform device\n");
-		err = -ENODEV;
-		goto err_no_bl_pdev;
-	}
-
-	dev_info(&dev->dev, "Backlight pdev created OK\n");
 
 	info->keys_pdev = capebus_of_platform_compatible_device_create(dev,
 			gpio_keys_of_match, "lcd-cape-keys",
 			"version", version);
 	if (IS_ERR(info->keys_pdev)) {
-		info->keys_pdev = NULL;
 		dev_err(&dev->dev, "Failed to create platform gpio-keys "
 				"platform device\n");
-		err = -ENODEV;
+		err = PTR_ERR(info->keys_pdev);
+		info->keys_pdev = NULL;
 		goto err_no_keys_pdev;
 	}
 
