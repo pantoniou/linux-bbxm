@@ -488,7 +488,8 @@ bone_capebus_probe(struct platform_device *pdev)
 {
 	struct bone_capebus_bus	*bus;
 	struct device_node	*pnode = pdev->dev.of_node;
-	const struct of_device_id *match;
+	const struct of_device_id *cntrlboard_match;
+	const struct of_device_id *dev_match;
 	struct bone_capebus_slot *slot;
 	const struct bone_capebus_eeprom_field *ee_field;
 	struct property *prop;
@@ -520,9 +521,9 @@ bone_capebus_probe(struct platform_device *pdev)
 		return r;
 	}
 
-	match = of_match_device(of_match_ptr(bone_capebus_of_match),
+	cntrlboard_match = of_match_device(of_match_ptr(bone_capebus_of_match),
 			&pdev->dev);
-	if (!match) {
+	if (!cntrlboard_match) {
 		dev_err(&pdev->dev, "Failed to configure bone capebus\n");
 		return -ENODEV;
 	}
@@ -559,8 +560,8 @@ bone_capebus_probe(struct platform_device *pdev)
 	/* now we iterate over any overrides */
 	for_each_child_of_node(pnode, node) {
 
-		match = of_match_node(slot_override_of_match, node);
-		if (!match)
+		dev_match = of_match_node(slot_override_of_match, node);
+		if (!dev_match)
 			continue;
 
 		/* no reg property */
