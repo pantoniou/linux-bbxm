@@ -167,6 +167,13 @@ struct select_list_entry {
 	char *name;
 };
 
+struct analyze_data {
+	u64	capture_start;
+	u64	capture_end;
+	u64	runtime;
+	u64	vruntime;
+};
+
 struct perf_sched {
 	struct perf_tool tool;
 	const char	 *input_name;
@@ -241,6 +248,9 @@ struct perf_sched {
 	struct playback *playback;
 
 	struct list_head select_list;
+
+	int analyze_maxcpu;
+	struct analyze_data *analyze;
 };
 
 static u64 get_nsecs(void)
@@ -1272,6 +1282,39 @@ add_sched_in_event(struct work_atoms *atoms, u64 timestamp)
 	atoms->nb_atoms++;
 }
 
+static int analyze_runtime_event(struct perf_sched *sched,
+				 struct perf_evsel *evsel,
+				 struct perf_sample *sample,
+				 struct machine *machine)
+{
+	const u32 pid	   = perf_evsel__intval(evsel, sample, "pid");
+	const u64 runtime  = perf_evsel__intval(evsel, sample, "runtime");
+	const u64 vruntime  = perf_evsel__intval(evsel, sample, "vruntime");
+	struct thread *thread = machine__findnew_thread(machine, pid);
+	u64 timestamp = sample->time;
+	int cpu = sample->cpu;
+	struct analyze_data *ad;
+
+	BUG_ON(cpu >= MAX_CPUS || cpu < 0);
+
+	BUG_ON(cpu >= sched->analyze_maxcpu);
+	BUG_ON(sched->analyze == NULL);
+
+	ad = sched->analyze + cpu;
+	if (ad->capture_start == (u64)-1LLU)
+		ad->capture_start = timestamp;
+	ad->capture_end = timestamp;
+
+	/* ignore the idle thread */
+	if (strcmp(thread->comm, "swapper") == 0)
+		return 0;
+
+	ad->runtime += runtime;
+	ad->vruntime += vruntime;
+
+	return 0;
+}
+
 static int latency_switch_event(struct perf_sched *sched,
 				struct perf_evsel *evsel,
 				struct perf_sample *sample,
@@ -1891,6 +1934,62 @@ static void print_bad_events(struct perf_sched *sched)
 			printf(" (due to lost events?)");
 		printf("\n");
 	}
+}
+
+static int perf_sched__analyze(struct perf_sched *sched)
+{
+	int sz;
+	int i;
+	u64 dur, start, end;
+	char buf[BUFSIZ];
+
+	sched->analyze_maxcpu = sysconf(_SC_NPROCESSORS_CONF);
+
+	sz = sched->analyze_maxcpu * sizeof(*sched->analyze);
+	sched->analyze = malloc(sz);
+	BUG_ON(sched->analyze == NULL);
+
+	memset(sched->analyze, 0, sz);
+
+	for (i = 0; i < sched->analyze_maxcpu; i++) {
+		sched->analyze[i].capture_start = (u64)-1LLU;
+		sched->analyze[i].capture_end = (u64)-1LLU;
+	}
+
+	setup_pager();
+	if (perf_sched__read_events(sched, true, NULL))
+		return -1;
+
+	/* find total span */
+	start = (u64)-1LLU;
+	end = (u64)-1LLU;
+	for (i = 0; i < sched->analyze_maxcpu; i++) {
+		if (start == (u64)-1LLU || start > sched->analyze[i].capture_start)
+			start = sched->analyze[i].capture_start;
+		if (end == (u64)-1LLU || end < sched->analyze[i].capture_end)
+			end = sched->analyze[i].capture_end;
+	}
+	dur = end - start;
+
+	printf("CPU utilization chart\n");
+	printf("%3s | %14s | %24s |\n",
+		"CPU", "Duration", "Busy");
+	printf("%3s | %14s | %24s |\n",
+		"---", "--------", "----");
+	for (i = 0; i < sched->analyze_maxcpu; i++) {
+		printf("%3d | ", i);
+		snprintf(buf, sizeof(buf) - 1, "%12" PRIu64, dur);
+		printf("%14s | ", buf);
+		snprintf(buf, sizeof(buf) - 1, "%12" PRIu64 " %%%4.1f" ,
+				sched->analyze[i].runtime,
+				((double)(sched->analyze[i].runtime * 100.0) / dur));
+		printf("%24s |\n", buf);
+	}
+
+	free(sched->analyze);
+	sched->analyze = NULL;
+
+	return 0;
 }
 
 static int perf_sched__lat(struct perf_sched *sched)
@@ -3817,6 +3916,9 @@ int cmd_sched(int argc, const char **argv, const char *prefix __maybe_unused)
 		.next_shortname2      = '0',
 		.select_list	      = LIST_HEAD_INIT(sched.select_list),
 	};
+	const struct option analyze_options[] = {
+		OPT_END()
+	};
 	const struct option latency_options[] = {
 	OPT_STRING('s', "sort", &sched.sort_order, "key[,key2...]",
 		   "sort by key(s): runtime, switch, avg, max"),
@@ -3874,6 +3976,10 @@ int cmd_sched(int argc, const char **argv, const char *prefix __maybe_unused)
 		    "dump raw trace in ASCII"),
 	OPT_END()
 	};
+	const char * const analyze_usage[] = {
+		"perf sched analyze [<options>]",
+		NULL
+	};
 	const char * const latency_usage[] = {
 		"perf sched latency [<options>]",
 		NULL
@@ -3889,6 +3995,9 @@ int cmd_sched(int argc, const char **argv, const char *prefix __maybe_unused)
 	static const char * const spr_replay_usage[] = {
 		"perf sched spr-replay [<options>]",
 		NULL
+	};
+	static struct trace_sched_handler analyze_ops  = {
+		.runtime_event		= analyze_runtime_event,
 	};
 	struct trace_sched_handler lat_ops  = {
 		.wakeup_event	    = latency_wakeup_event,
@@ -3921,6 +4030,14 @@ int cmd_sched(int argc, const char **argv, const char *prefix __maybe_unused)
 	symbol__init();
 	if (!strncmp(argv[0], "rec", 3)) {
 		return __cmd_record(argc, argv);
+	} else if (!strncmp(argv[0], "ana", 3)) {
+		sched.tp_handler = &analyze_ops;
+		if (argc) {
+			argc = parse_options(argc, argv, analyze_options, analyze_usage, 0);
+			if (argc)
+				usage_with_options(analyze_usage, analyze_options);
+		}
+		return perf_sched__analyze(&sched);
 	} else if (!strncmp(argv[0], "lat", 3)) {
 		sched.tp_handler = &lat_ops;
 		if (argc > 1) {
