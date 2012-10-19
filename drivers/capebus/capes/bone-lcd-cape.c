@@ -39,10 +39,6 @@ struct bone_lcd_info {
 	struct platform_device *da8xx_dt_pdev;
 	struct platform_device *bl_pdev;
 	struct platform_device *keys_pdev;
-	struct omap_hwmod *tsc_oh;
-	struct tsc_data tsc_data;
-	struct adc_data adc_data;
-	struct mfd_tscadc_board tscadc_data;
 	struct platform_device *tscadc_pdev;
 };
 
@@ -73,6 +69,9 @@ static int bonelcd_probe(struct cape_dev *dev, const struct cape_device_id *id)
 	};
 	static const struct of_device_id gpio_keys_of_match[] = {
 		{ .compatible = "gpio-keys", }, { },
+	};
+	static const struct of_device_id ti_tscadc_dt_of_match[] = {
+		{ .compatible = "ti-tscadc-dt", }, { },
 	};
 	static const struct of_device_id da8xx_dt_of_match[] = {
 		{ .compatible = "da8xx-dt", }, { },
@@ -132,9 +131,10 @@ static int bonelcd_probe(struct cape_dev *dev, const struct cape_device_id *id)
 
 	dev_info(&dev->dev, "LED pdev created OK\n");
 
-	if (match->data == BONE_LCD_TYPE(3) || match->data == BONE_LCD_TYPE(4)) {
-		info->bl_pdev = capebus_of_platform_compatible_device_create(dev,
-				tps_bl_of_match, "lcd-cape-bl",
+	if (match->data == BONE_LCD_TYPE(3) ||
+			match->data == BONE_LCD_TYPE(4)) {
+		info->bl_pdev = capebus_of_platform_compatible_device_create(
+				dev, tps_bl_of_match, "lcd-cape-bl",
 				"version", version);
 		if (IS_ERR(info->bl_pdev)) {
 			dev_warn(&dev->dev, "Failed to tps backlight "
@@ -159,22 +159,9 @@ static int bonelcd_probe(struct cape_dev *dev, const struct cape_device_id *id)
 
 	dev_info(&dev->dev, "GPIO keys pdev created OK\n");
 
-	info->tsc_data.wires = 4;
-	info->tsc_data.x_plate_resistance = 200;
-	info->tsc_data.steps_to_configure = 6;
-	info->adc_data.adc_channels = 4;
-	info->tscadc_data.tsc_init = &info->tsc_data;
-	info->tscadc_data.adc_init = &info->adc_data;
-
-	info->tsc_oh = omap_hwmod_lookup("adc_tsc");
-	if (info->tsc_oh == NULL) {
-		dev_err(&dev->dev, "Could not lookup HWMOD %s\n", "adc_tsc");
-		err = -ENODEV;
-		goto err_no_tsc_oh;
-	}
-	info->tscadc_pdev = omap_device_build("ti_tscadc", -1, info->tsc_oh,
-			&info->tscadc_data, sizeof(info->tscadc_data),
-			NULL, 0, 0);
+	info->tscadc_pdev = capebus_of_platform_compatible_device_create(dev,
+			ti_tscadc_dt_of_match, "lcd-cape-ti-tscadc",
+			"version", version);
 	if (info->tscadc_pdev == NULL) {
 		dev_err(&dev->dev, "Could not create tsc_adc device\n");
 		err = -ENODEV;
@@ -200,8 +187,6 @@ static int bonelcd_probe(struct cape_dev *dev, const struct cape_device_id *id)
 err_no_da8xx_fb:
 	platform_device_unregister(info->tscadc_pdev);
 err_no_tsc_pdev:
-	/* nothing */
-err_no_tsc_oh:
 	platform_device_unregister(info->keys_pdev);
 err_no_keys_pdev:
 	platform_device_unregister(info->bl_pdev);

@@ -196,6 +196,113 @@ static struct platform_driver da8xx_dt_driver = {
 
 #endif
 
+#if defined(CONFIG_MFD_TI_TSCADC) || defined(CONFIG_MFD_TI_TSCADC_MODULE)
+
+struct ti_tscadc_priv {
+	struct omap_hwmod *tsc_oh;
+	struct tsc_data tsc_data;
+	struct adc_data adc_data;
+	struct mfd_tscadc_board tscadc_data;
+	struct platform_device *tscadc_pdev;
+};
+
+static const struct of_device_id of_ti_tscadc_dt_match[] = {
+	{ .compatible = "ti-tscadc-dt", },
+	{},
+};
+
+static int __devinit ti_tscadc_dt_probe(struct platform_device *pdev)
+{
+	struct ti_tscadc_priv *priv;
+	struct pinctrl *pinctrl;
+	u32 val;
+	int ret;
+
+	priv = devm_kzalloc(&pdev->dev, sizeof(*priv), GFP_KERNEL);
+	if (priv == NULL) {
+		dev_err(&pdev->dev, "Failed to allocate priv\n");
+		return -ENOMEM;
+	}
+
+	pinctrl = devm_pinctrl_get_select_default(&pdev->dev);
+	if (IS_ERR(pinctrl))
+		dev_warn(&pdev->dev,
+			"pins are not configured from the driver\n");
+
+	ret = of_property_read_u32(pdev->dev.of_node, "tsc-wires", &val);
+	if (ret != 0) {
+		dev_info(&pdev->dev, "no tsc-wires property; disabling TSC\n");
+		val = 0;
+	}
+	priv->tsc_data.wires = val;
+
+	if (priv->tsc_data.wires > 0) {
+		ret = of_property_read_u32(pdev->dev.of_node,
+				"tsc-x-plate-resistance", &val);
+		if (ret != 0) {
+			dev_err(&pdev->dev, "Failed to read "
+					"tsc-x-plate-resistance property\n");
+			return ret;
+		}
+		priv->tsc_data.x_plate_resistance = val;
+
+		ret = of_property_read_u32(pdev->dev.of_node,
+				"tsc-steps", &val);
+		if (ret != 0) {
+			dev_err(&pdev->dev, "Failed to read "
+					"tsc-steps property\n");
+			return ret;
+		}
+		priv->tsc_data.steps_to_configure = val;
+	}
+
+	ret = of_property_read_u32(pdev->dev.of_node, "adc-channels", &val);
+	if (ret != 0) {
+		dev_info(&pdev->dev, "No adc-channels property; disabling adc\n");
+		val = 0;
+	}
+	priv->adc_data.adc_channels = val;
+
+	priv->tscadc_data.tsc_init = &priv->tsc_data;
+	priv->tscadc_data.adc_init = &priv->adc_data;
+
+	priv->tsc_oh = omap_hwmod_lookup("adc_tsc");
+	if (priv->tsc_oh == NULL) {
+		dev_err(&pdev->dev, "Could not lookup HWMOD %s\n", "adc_tsc");
+		return -ENODEV;
+	}
+	priv->tscadc_pdev = omap_device_build("ti_tscadc", -1, priv->tsc_oh,
+			&priv->tscadc_data, sizeof(priv->tscadc_data),
+			NULL, 0, 0);
+	if (priv->tscadc_pdev == NULL) {
+		dev_err(&pdev->dev, "Could not create tsc_adc device\n");
+		return -ENODEV;
+	}
+
+	dev_info(&pdev->dev, "TI tscadc pdev created OK\n");
+
+	platform_set_drvdata(pdev, priv);
+
+	return 0;
+}
+
+static int __devexit ti_tscadc_dt_remove(struct platform_device *pdev)
+{
+	return -EINVAL;	/* not supporting removal yet */
+}
+
+static struct platform_driver ti_tscadc_dt_driver = {
+	.probe		= ti_tscadc_dt_probe,
+	.remove		= __devexit_p(ti_tscadc_dt_remove),
+	.driver		= {
+		.name	= "ti_tscadc-dt",
+		.owner	= THIS_MODULE,
+		.of_match_table = of_ti_tscadc_dt_match,
+	},
+};
+
+#endif
+
 struct bone_capebus_pdev_driver {
 	struct platform_driver *driver;
 	unsigned int registered : 1;
@@ -204,9 +311,13 @@ struct bone_capebus_pdev_driver {
 
 static struct bone_capebus_pdev_driver pdev_drivers[] = {
 #if defined(CONFIG_FB_DA8XX) || defined(CONFIG_FB_DA8XX_MODULE)
-
 	{
 		.driver		= &da8xx_dt_driver,
+	},
+#endif
+#if defined(CONFIG_MFD_TI_TSCADC) || defined(CONFIG_MFD_TI_TSCADC_MODULE)
+	{
+		.driver		= &ti_tscadc_dt_driver,
 	},
 #endif
 	{

@@ -459,6 +459,14 @@
 	vsense-name = "AIN5";		/* analog vsense */
 	vsense-scale = <37325>;		/* scaling */
 
+	tscadc {
+		compatible = "ti-tscadc-dt";
+
+		ti,hwmods = "adc_tsc";
+
+		adc-channels = <8>;
+	};
+
 	gpio-leds {
 		compatible = "gpio-leds";
 		pinctrl-names = "default";
@@ -494,6 +502,19 @@
 
 		disp-pll = <16000000>;
 		panel-type = "CDTech_S035Q01";
+	};
+
+	/* same thing as above */
+	tscadc {
+		compatible = "ti-tscadc-dt";
+
+		ti,hwmods = "adc_tsc";
+
+		tsc-wires = <4>;
+		tsc-x-plate-resistance = <200>;
+		tsc-steps = <6>;
+
+		adc-channels = <4>;
 	};
 
 	version@00A0 {
@@ -593,6 +614,19 @@
 
 		disp-pll = <60000000>;
 		panel-type = "TFC_S9700RTWV35TR_01B";
+	};
+
+	/* same thing as above */
+	tscadc {
+		compatible = "ti-tscadc-dt";
+
+		ti,hwmods = "adc_tsc";
+
+		tsc-wires = <4>;
+		tsc-x-plate-resistance = <200>;
+		tsc-steps = <6>;
+
+		adc-channels = <4>;
 	};
 
 	version@00A0 {
