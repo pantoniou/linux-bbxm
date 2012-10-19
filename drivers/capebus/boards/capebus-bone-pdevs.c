@@ -384,3 +384,118 @@ void bone_capebus_unregister_pdev_adapters(struct bone_capebus_bus *bus)
 		drvp->registered = 0;
 	}
 }
+
+struct bone_capebus_generic_info *
+bone_capebus_probe_generic(struct cape_dev *dev,
+		const struct cape_device_id *id)
+{
+	static const struct of_device_id gpio_leds_of_match[] = {
+		{ .compatible = "gpio-leds", }, { },
+	};
+	static const struct of_device_id tps_bl_of_match[] = {
+		{ .compatible = "tps65217-backlight", }, { },
+	};
+	static const struct of_device_id gpio_keys_of_match[] = {
+		{ .compatible = "gpio-keys", }, { },
+	};
+	static const struct of_device_id ti_tscadc_dt_of_match[] = {
+		{ .compatible = "ti-tscadc-dt", }, { },
+	};
+	static const struct of_device_id da8xx_dt_of_match[] = {
+		{ .compatible = "da8xx-dt", }, { },
+	};
+	struct bone_capebus_generic_info *info;
+	char boardbuf[33];
+	char versionbuf[5];
+	const char *board_name;
+	const char *version;
+	const struct of_device_id *match;
+	struct pinctrl *pinctrl;
+
+	/* get the board name (also matches the cntrlboard before checking) */
+	board_name = bone_capebus_id_get_field(id, BONE_CAPEBUS_BOARD_NAME,
+			boardbuf, sizeof(boardbuf));
+	if (board_name == NULL)
+		return ERR_PTR(ENODEV);
+
+	/* match compatible? */
+	match = capebus_of_match_device(dev, "board-name", board_name);
+	if (match == NULL)
+		return ERR_PTR(ENODEV);
+
+	/* get the board version */
+	version = bone_capebus_id_get_field(id, BONE_CAPEBUS_VERSION,
+			versionbuf, sizeof(versionbuf));
+	if (version == NULL)
+		return ERR_PTR(-ENODEV);
+
+	pinctrl = devm_pinctrl_get_select_default(&dev->dev);
+	if (IS_ERR(pinctrl))
+		dev_warn(&dev->dev,
+			"pins are not configured from the driver\n");
+
+	dev_info(&dev->dev, "%s: V=%s '%s'\n", board_name,
+			version, match->compatible);
+
+	info = devm_kzalloc(&dev->dev, sizeof(*info), GFP_KERNEL);
+	if (info == NULL) {
+		dev_err(&dev->dev, "Failed to allocate info\n");
+		return ERR_PTR(-ENOMEM);
+	}
+	info->dev = dev;
+
+	/* NOTE: platform devices fail to be created silently */
+	info->leds_pdev = capebus_of_platform_compatible_device_create(dev,
+			gpio_leds_of_match, "generic-cape-leds",
+			"version", version);
+	if (IS_ERR(info->leds_pdev))
+		info->leds_pdev = NULL;
+	if (info->leds_pdev != NULL)
+		dev_info(&dev->dev, "LED pdev created OK\n");
+
+	info->tps_bl_pdev = capebus_of_platform_compatible_device_create(
+			dev, tps_bl_of_match, "generic-cape-bl",
+			"version", version);
+	if (IS_ERR(info->tps_bl_pdev))
+		info->tps_bl_pdev = NULL;
+	if (info->tps_bl_pdev != NULL)
+		dev_info(&dev->dev, "tps backlight pdev created OK\n");
+
+	info->keys_pdev = capebus_of_platform_compatible_device_create(dev,
+			gpio_keys_of_match, "generic-cape-keys",
+			"version", version);
+	if (IS_ERR(info->keys_pdev))
+		info->keys_pdev = NULL;
+	if (info->keys_pdev != NULL)
+		dev_info(&dev->dev, "GPIO keys pdev created OK\n");
+
+	info->tscadc_dt_pdev = capebus_of_platform_compatible_device_create(dev,
+			ti_tscadc_dt_of_match, "generic-cape-ti-tscadc",
+			"version", version);
+	if (IS_ERR(info->tscadc_dt_pdev))
+		info->tscadc_dt_pdev = NULL;
+	if (info->tscadc_dt_pdev != NULL)
+		dev_info(&dev->dev, "TI tscadc pdev created OK\n");
+
+	info->da8xx_dt_pdev = capebus_of_platform_compatible_device_create(dev,
+			da8xx_dt_of_match, "generic-cape-da8xx",
+			"version", version);
+	if (IS_ERR(info->da8xx_dt_pdev))
+		info->da8xx_dt_pdev = NULL;
+	if (info->da8xx_dt_pdev != NULL)
+		dev_info(&dev->dev, "da8xx-dt pdev created OK\n");
+
+	return info;
+}
+EXPORT_SYMBOL(bone_capebus_probe_generic);
+
+void bone_capebus_remove_generic(struct bone_capebus_generic_info *info)
+{
+	platform_device_unregister(info->da8xx_dt_pdev);
+	platform_device_unregister(info->tscadc_dt_pdev);
+	platform_device_unregister(info->keys_pdev);
+	platform_device_unregister(info->tps_bl_pdev);
+	platform_device_unregister(info->leds_pdev);
+	devm_kfree(&info->dev->dev, info);
+}
+EXPORT_SYMBOL(bone_capebus_remove_generic);

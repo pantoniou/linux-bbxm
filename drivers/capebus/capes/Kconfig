@@ -18,3 +18,10 @@ config CAPEBUS_BONE_LCD
 	default n
 	help
 	  "Select this to enable a driver for the LCD3,LCD4,LCD7 capes"
+
+config CAPEBUS_BONE_GENERIC
+	tristate "Beaglebone Generic cape driver"
+	depends on CAPEBUS_BONE_CONTROLLER
+	default n
+	help
+	  "Select this to enable a generic cape driver; hone your DT skillz!"
