@@ -1113,7 +1113,7 @@ static int __init load_avg_cpufreq_init(void)
 	/* make sure we pick up any late changes */
 	for_each_present_cpu(cpu) {
 		cpu_power = arch_scale_freq_power(NULL, cpu);
-		if (cpu_power > SCHED_POWER_SCALE) {
+		if (cpu_power == 0 || cpu_power > SCHED_POWER_SCALE) {
 			printk(KERN_INFO "sched: cpu%d illegal cpu_power %u\n",
 					cpu, cpu_power);
 			cpu_power = SCHED_POWER_SCALE;
@@ -1140,7 +1140,6 @@ static int __init load_avg_tables_setup(void)
 	unsigned int cpu;
 	unsigned int period_log2;
 	unsigned int cpu_power;
-	int ret;
 
 	period_log2 = ilog2(sched_lat_period);
 	sched_init_load_avg_table(&load_avg_table_data, period_log2, 1024);
@@ -1148,23 +1147,22 @@ static int __init load_avg_tables_setup(void)
 	printk(KERN_INFO "sched: Initialized load average table data with period %d\n", sched_lat_period);
 	sched_dump_load_avg_table(&load_avg_table_data);
 
-	for_each_present_cpu(cpu) {
-		cpu_power = arch_scale_freq_power(NULL, cpu);
-		if (cpu_power > SCHED_POWER_SCALE) {
-			printk(KERN_INFO "sched: cpu%d got illegal cpu_power value %u\n",
-					cpu, cpu_power);
+	for_each_possible_cpu(cpu) {
+		if (cpumask_test_cpu(cpu, cpu_present_mask)) {
+			cpu_power = arch_scale_freq_power(NULL, cpu);
+			if (cpu_power == 0 || cpu_power > SCHED_POWER_SCALE) {
+				printk(KERN_INFO "sched: cpu%d got illegal cpu_power value %u\n",
+						cpu, cpu_power);
+				cpu_power = SCHED_POWER_SCALE;
+			}
+		} else {
+			/* be ready when it shows up again */
 			cpu_power = SCHED_POWER_SCALE;
 		}
 		per_cpu(load_avg_tables, cpu).data = &load_avg_table_data;
 		per_cpu(load_avg_tables, cpu).cpu_power = cpu_power;
 
 		printk(KERN_INFO "sched: cpu%u cpu_power is %u\n", cpu, cpu_power);
-	}
-
-	ret = cpufreq_register_notifier(&load_avg_cpufreq_nb,
-			CPUFREQ_TRANSITION_NOTIFIER);
-	if (ret != 0) {
-		printk(KERN_ERR "sched: failed to register load_avg cpu freq notifier\n");
 	}
 
 	atomic_set(&load_avg_tables_init, 1);
