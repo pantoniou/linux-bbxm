@@ -56,10 +56,6 @@ struct bone_geiger_info {
 	struct led_trigger *run_led;		/* running      */
 	unsigned long event_blink_delay;
 	struct sysfs_dirent *counter_sd;	/* notifier */
-	struct omap_hwmod *tsc_oh;
-	struct tsc_data tsc_data;
-	struct adc_data adc_data;
-	struct mfd_tscadc_board tscadc_data;
 	struct platform_device *tscadc_pdev;
 	const char *vsense_name;
 	unsigned int vsense_scale;
@@ -254,6 +250,9 @@ static int bonegeiger_probe(struct cape_dev *dev, const struct cape_device_id *i
 	static const struct of_device_id gpio_leds_of_match[] = {
 		{ .compatible = "gpio-leds", }, { },
 	};
+	static const struct of_device_id ti_tscadc_dt_of_match[] = {
+		{ .compatible = "ti-tscadc-dt", }, { },
+	};
 	char boardbuf[33];
 	char versionbuf[5];
 	const char *board_name;
@@ -411,19 +410,9 @@ static int bonegeiger_probe(struct cape_dev *dev, const struct cape_device_id *i
 	}
 	info->event_blink_delay = val;
 
-	info->adc_data.adc_channels = 8;
-	info->tscadc_data.tsc_init = &info->tsc_data;
-	info->tscadc_data.adc_init = &info->adc_data;
-
-	info->tsc_oh = omap_hwmod_lookup("adc_tsc");
-	if (info->tsc_oh == NULL) {
-		dev_err(&dev->dev, "Could not lookup HWMOD %s\n", "adc_tsc");
-		err = -ENODEV;
-		goto err_no_tsc_oh;
-	}
-	info->tscadc_pdev = omap_device_build("ti_tscadc", -1, info->tsc_oh,
-			&info->tscadc_data, sizeof(info->tscadc_data),
-			NULL, 0, 0);
+	info->tscadc_pdev = capebus_of_platform_compatible_device_create(dev,
+			ti_tscadc_dt_of_match, "geiger-cape-ti-tscadc",
+			"version", version);
 	if (info->tscadc_pdev == NULL) {
 		dev_err(&dev->dev, "Could not create tsc_adc device\n");
 		err = -ENODEV;
@@ -460,8 +449,6 @@ static int bonegeiger_probe(struct cape_dev *dev, const struct cape_device_id *i
 err_no_vsense:
 	of_device_unregister(info->tscadc_pdev);
 err_no_tsc_pdev:
-	/* nothing */
-err_no_tsc_oh:
 	of_device_unregister(info->leds_pdev);
 err_no_leds_pdev:
 	led_trigger_unregister_simple(info->run_led);
