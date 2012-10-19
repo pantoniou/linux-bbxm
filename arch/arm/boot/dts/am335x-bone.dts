@@ -238,7 +238,8 @@
 			};
 
 			bone_lcd3_cape: cape@2 {
-				compatible = "bone-lcd3-cape";
+				// compatible = "bone-lcd3-cape";
+				compatible = "bone-generic-cape";
 			};
 
 			bone_lcd7_cape: cape@3 {
