@@ -87,4 +87,21 @@ int bone_capebus_match_board(const struct cape_device_id *id,
 int bone_capebus_register_pdev_adapters(struct bone_capebus_bus *bus);
 void bone_capebus_unregister_pdev_adapters(struct bone_capebus_bus *bus);
 
+/* generic cape support */
+struct bone_capebus_generic_info {
+	struct cape_dev *dev;
+	struct platform_device *leds_pdev;
+	struct platform_device *da8xx_dt_pdev;
+	struct platform_device *tps_bl_pdev;
+	struct platform_device *keys_pdev;
+	struct platform_device *tscadc_dt_pdev;
+};
+
+struct bone_capebus_generic_info *
+bone_capebus_probe_generic(struct cape_dev *dev,
+		const struct cape_device_id *id);
+
+void bone_capebus_remove_generic(
+		struct bone_capebus_generic_info *info);
+
 #endif
