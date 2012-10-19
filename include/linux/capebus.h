@@ -201,4 +201,93 @@ capebus_of_platform_compatible_device_create(struct cape_dev *dev,
 		const char *pdev_name,
 		const char *prop, const char *prop_value);
 
+/* of tree support */
+
+struct device_node *
+capebus_of_find_property_node(struct cape_dev *dev,
+		const char *prop, const char *prop_value,
+		const char *name);
+
+struct property *
+capebus_of_find_property(struct cape_dev *dev,
+		const char *prop, const char *prop_value,
+		const char *name, int *lenp);
+
+const void *capebus_of_get_property(struct cape_dev *dev,
+		const char *prop, const char *prop_value,
+		const char *name, int *lenp);
+
+static inline int capebus_of_property_read_u32_array(struct cape_dev *dev,
+		const char *prop, const char *prop_value,
+		const char *name, u32 *out_values, size_t sz)
+{
+	struct device_node *node;
+	int ret;
+
+	node = capebus_of_find_property_node(dev, prop, prop_value, name);
+	ret = of_property_read_u32_array(node, name, out_values, sz);
+	of_node_put(node);
+	return ret;
+}
+
+static inline int capebus_of_property_read_u32(struct cape_dev *dev,
+		const char *prop, const char *prop_value,
+	       const char *name, u32 *out_value)
+{
+	return capebus_of_property_read_u32_array(dev, prop,
+			prop_value, name, out_value, 1);
+}
+
+static inline bool capebus_of_property_read_bool(struct cape_dev *dev,
+		const char *prop, const char *prop_value,
+		const char *name)
+{
+	struct device_node *node;
+	bool ret;
+
+	node = capebus_of_find_property_node(dev, prop, prop_value, name);
+	ret = of_property_read_bool(node, name);
+	of_node_put(node);
+	return ret;
+}
+
+static inline int capebus_of_property_read_string(struct cape_dev *dev,
+		const char *prop, const char *prop_value,
+		const char *name, const char **out_string)
+{
+	struct device_node *node;
+	int ret;
+
+	node = capebus_of_find_property_node(dev, prop, prop_value, name);
+	ret = of_property_read_string(node, name, out_string);
+	of_node_put(node);
+	return ret;
+}
+
+static inline int capebus_of_property_read_string_index(struct cape_dev *dev,
+		const char *prop, const char *prop_value,
+		const char *name, int index, const char **out_string)
+{
+	struct device_node *node;
+	int ret;
+
+	node = capebus_of_find_property_node(dev, prop, prop_value, name);
+	ret = of_property_read_string_index(node, name, index, out_string);
+	of_node_put(node);
+	return ret;
+}
+
+static inline int capebus_of_property_read_u64(struct cape_dev *dev,
+		const char *prop, const char *prop_value,
+		const char *name, u64 *out_value)
+{
+	struct device_node *node;
+	int ret;
+
+	node = capebus_of_find_property_node(dev, prop, prop_value, name);
+	ret = of_property_read_u64(node, name, out_value);
+	of_node_put(node);
+	return ret;
+}
+
 #endif

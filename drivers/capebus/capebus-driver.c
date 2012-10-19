@@ -476,6 +476,85 @@ capebus_of_platform_compatible_device_create(struct cape_dev *dev,
 }
 EXPORT_SYMBOL(capebus_of_platform_compatible_device_create);
 
+struct device_node *
+capebus_of_find_property_node(struct cape_dev *dev,
+		const char *prop, const char *prop_value,
+		const char *name)
+{
+	struct device_node *node;
+	const char* cp;
+	int cplen, l;
+	struct property *pp;
+
+	node = NULL;
+	if (prop == NULL || prop_value == NULL)
+		goto find_direct;
+
+	/* at first try secondary match */
+	for_each_child_of_node(dev->dev.of_node, node) {
+
+		cp = of_get_property(node, prop, &cplen);
+		if (cp == NULL)
+			continue;
+
+		while (cplen > 0) {
+			if (of_compat_cmp(cp, prop_value,
+						strlen(prop_value)) == 0)
+				break;
+			l = strlen(cp) + 1;
+			cp += l;
+			cplen -= l;
+		}
+
+		/* not matched */
+		if (cplen <= 0)
+			continue;
+
+		/* found ? */
+		pp = of_find_property(node, name, NULL);
+		if (pp != NULL)
+			return node;
+	}
+find_direct:
+	pp = of_find_property(dev->dev.of_node, name, NULL);
+	if (pp == NULL)
+		return NULL;
+
+	return of_node_get(dev->dev.of_node);
+}
+EXPORT_SYMBOL_GPL(capebus_of_find_property_node);
+
+struct property *
+capebus_of_find_property(struct cape_dev *dev,
+		const char *prop, const char *prop_value,
+		const char *name, int *lenp)
+{
+	struct device_node *node;
+	struct property *pp;
+
+	node = capebus_of_find_property_node(dev, prop, prop_value, name);
+	if (node == NULL)
+		return NULL;
+
+	pp = of_find_property(node, name, lenp);
+
+	of_node_put(node);
+
+	return pp;
+}
+EXPORT_SYMBOL_GPL(capebus_of_find_property);
+
+const void *capebus_of_get_property(struct cape_dev *dev,
+		const char *prop, const char *prop_value,
+		const char *name, int *lenp)
+{
+	struct property *pp;
+
+	pp = capebus_of_find_property(dev, prop, prop_value, name, lenp);
+	return pp ? pp->value : NULL;
+}
+EXPORT_SYMBOL_GPL(capebus_of_get_property);
+
 EXPORT_SYMBOL(__capebus_register_driver);
 EXPORT_SYMBOL(capebus_unregister_driver);
 EXPORT_SYMBOL(capebus_bus_type);
