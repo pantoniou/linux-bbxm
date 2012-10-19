@@ -78,7 +78,7 @@ void get_term_dimensions(struct winsize *ws);
 #endif
 
 #ifdef __arm__
-#include "../../arch/arm/include/asm/unistd.h"
+#include "../../arch/arm/include/uapi/asm/unistd.h"
 /*
  * Use the __kuser_memory_barrier helper in the CPU helper page. See
  * arch/arm/kernel/entry-armv.S in the kernel source for details.
