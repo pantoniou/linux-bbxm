@@ -385,26 +385,9 @@ void bone_capebus_unregister_pdev_adapters(struct bone_capebus_bus *bus)
 	}
 }
 
-struct bone_capebus_generic_info *
-bone_capebus_probe_generic(struct cape_dev *dev,
+int bone_capebus_probe_prolog(struct cape_dev *dev,
 		const struct cape_device_id *id)
 {
-	static const struct of_device_id gpio_leds_of_match[] = {
-		{ .compatible = "gpio-leds", }, { },
-	};
-	static const struct of_device_id tps_bl_of_match[] = {
-		{ .compatible = "tps65217-backlight", }, { },
-	};
-	static const struct of_device_id gpio_keys_of_match[] = {
-		{ .compatible = "gpio-keys", }, { },
-	};
-	static const struct of_device_id ti_tscadc_dt_of_match[] = {
-		{ .compatible = "ti-tscadc-dt", }, { },
-	};
-	static const struct of_device_id da8xx_dt_of_match[] = {
-		{ .compatible = "da8xx-dt", }, { },
-	};
-	struct bone_capebus_generic_info *info;
 	char boardbuf[33];
 	char versionbuf[5];
 	const char *board_name;
@@ -416,18 +399,18 @@ bone_capebus_probe_generic(struct cape_dev *dev,
 	board_name = bone_capebus_id_get_field(id, BONE_CAPEBUS_BOARD_NAME,
 			boardbuf, sizeof(boardbuf));
 	if (board_name == NULL)
-		return ERR_PTR(ENODEV);
+		return -ENODEV;
 
 	/* match compatible? */
 	match = capebus_of_match_device(dev, "board-name", board_name);
 	if (match == NULL)
-		return ERR_PTR(ENODEV);
+		return -ENODEV;
 
 	/* get the board version */
 	version = bone_capebus_id_get_field(id, BONE_CAPEBUS_VERSION,
 			versionbuf, sizeof(versionbuf));
 	if (version == NULL)
-		return ERR_PTR(-ENODEV);
+		return -ENODEV;
 
 	pinctrl = devm_pinctrl_get_select_default(&dev->dev);
 	if (IS_ERR(pinctrl))
@@ -437,53 +420,100 @@ bone_capebus_probe_generic(struct cape_dev *dev,
 	dev_info(&dev->dev, "%s: V=%s '%s'\n", board_name,
 			version, match->compatible);
 
+	return 0;
+}
+EXPORT_SYMBOL(bone_capebus_probe_prolog);
+
+static const struct bone_capebus_generic_device_data gendevs[] = {
+	{
+		.name	= "leds",
+		.of_match = (const struct of_device_id []) {
+				{ .compatible = "gpio-leds", }, { },
+			},
+		.units	 = 0,	/* no limit */
+	}, {
+		.name	= "tps-bl",
+		.of_match = (const struct of_device_id []) {
+				{ .compatible = "tps65217-backlight", }, { },
+			},
+		.units	 = 0,	/* no limit */
+	}, {
+		.name	= "keys",
+		.of_match = (const struct of_device_id []) {
+				{ .compatible = "gpio-keys", }, { },
+			},
+		.units	 = 0,	/* no limit */
+	}, {
+		.name	= "tscadc",
+		.of_match = (const struct of_device_id []) {
+				{ .compatible = "ti-tscadc-dt", }, { },
+			},
+		.units	 = 1,
+	}, {
+		.name	= "lcdc",
+		.of_match = (const struct of_device_id []) {
+				{ .compatible = "da8xx-dt", }, { },
+			},
+		.units	 = 1,
+	},
+};
+
+struct bone_capebus_generic_info *
+bone_capebus_probe_generic(struct cape_dev *dev,
+		const struct cape_device_id *id)
+{
+	struct bone_capebus_generic_info *info;
+	char boardbuf[33];
+	char versionbuf[5];
+	const char *board_name;
+	const char *version;
+	struct platform_device *pdev;
+	const struct bone_capebus_generic_device_data *dd;
+	struct bone_capebus_generic_device_entry *de;
+	int i;
+
+	/* get the board name (also matches the cntrlboard before checking) */
+	board_name = bone_capebus_id_get_field(id, BONE_CAPEBUS_BOARD_NAME,
+			boardbuf, sizeof(boardbuf));
+	/* get the board version */
+	version = bone_capebus_id_get_field(id, BONE_CAPEBUS_VERSION,
+			versionbuf, sizeof(versionbuf));
+
+	/* should never happen, but it doesn't hurt to play it safe */
+	if (board_name == NULL || version == NULL)
+		return ERR_PTR(-ENODEV);
+
 	info = devm_kzalloc(&dev->dev, sizeof(*info), GFP_KERNEL);
 	if (info == NULL) {
 		dev_err(&dev->dev, "Failed to allocate info\n");
 		return ERR_PTR(-ENOMEM);
 	}
 	info->dev = dev;
+	INIT_LIST_HEAD(&info->pdev_list);
 
-	/* NOTE: platform devices fail to be created silently */
-	info->leds_pdev = capebus_of_platform_compatible_device_create(dev,
-			gpio_leds_of_match, "generic-cape-leds",
-			"version", version);
-	if (IS_ERR(info->leds_pdev))
-		info->leds_pdev = NULL;
-	if (info->leds_pdev != NULL)
-		dev_info(&dev->dev, "LED pdev created OK\n");
+	/* iterate over the supported devices */
+	for (i = 0, dd = gendevs; i < ARRAY_SIZE(gendevs); i++, dd++) {
+		pdev = capebus_of_platform_compatible_device_create(dev,
+			dd->of_match, dd->name, "version", version);
+		if (IS_ERR(pdev))
+			pdev = NULL;
 
-	info->tps_bl_pdev = capebus_of_platform_compatible_device_create(
-			dev, tps_bl_of_match, "generic-cape-bl",
-			"version", version);
-	if (IS_ERR(info->tps_bl_pdev))
-		info->tps_bl_pdev = NULL;
-	if (info->tps_bl_pdev != NULL)
-		dev_info(&dev->dev, "tps backlight pdev created OK\n");
+		if (pdev == NULL)
+			continue;
 
-	info->keys_pdev = capebus_of_platform_compatible_device_create(dev,
-			gpio_keys_of_match, "generic-cape-keys",
-			"version", version);
-	if (IS_ERR(info->keys_pdev))
-		info->keys_pdev = NULL;
-	if (info->keys_pdev != NULL)
-		dev_info(&dev->dev, "GPIO keys pdev created OK\n");
+		de = devm_kzalloc(&dev->dev, sizeof(*de), GFP_KERNEL);
+		if (de == NULL) {
+			dev_err(&dev->dev, "failed to allocate entry for %s\n",
+					dd->name);
+			platform_device_unregister(pdev);
+			continue;
+		}
 
-	info->tscadc_dt_pdev = capebus_of_platform_compatible_device_create(dev,
-			ti_tscadc_dt_of_match, "generic-cape-ti-tscadc",
-			"version", version);
-	if (IS_ERR(info->tscadc_dt_pdev))
-		info->tscadc_dt_pdev = NULL;
-	if (info->tscadc_dt_pdev != NULL)
-		dev_info(&dev->dev, "TI tscadc pdev created OK\n");
-
-	info->da8xx_dt_pdev = capebus_of_platform_compatible_device_create(dev,
-			da8xx_dt_of_match, "generic-cape-da8xx",
-			"version", version);
-	if (IS_ERR(info->da8xx_dt_pdev))
-		info->da8xx_dt_pdev = NULL;
-	if (info->da8xx_dt_pdev != NULL)
-		dev_info(&dev->dev, "da8xx-dt pdev created OK\n");
+		/* add it to the list */
+		de->data = dd;
+		de->pdev = pdev;
+		list_add_tail(&de->node, &info->pdev_list);
+	}
 
 	return info;
 }
@@ -491,11 +521,16 @@ EXPORT_SYMBOL(bone_capebus_probe_generic);
 
 void bone_capebus_remove_generic(struct bone_capebus_generic_info *info)
 {
-	platform_device_unregister(info->da8xx_dt_pdev);
-	platform_device_unregister(info->tscadc_dt_pdev);
-	platform_device_unregister(info->keys_pdev);
-	platform_device_unregister(info->tps_bl_pdev);
-	platform_device_unregister(info->leds_pdev);
+	struct list_head *lh, *lhn;
+	struct bone_capebus_generic_device_entry *de;
+
+	list_for_each_safe(lh, lhn, &info->pdev_list) {
+		de = list_entry(lh, struct bone_capebus_generic_device_entry,
+				node);
+		list_del(lh);
+		platform_device_unregister(de->pdev);
+		devm_kfree(&info->dev->dev, de);
+	}
 	devm_kfree(&info->dev->dev, info);
 }
 EXPORT_SYMBOL(bone_capebus_remove_generic);

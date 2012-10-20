@@ -23,6 +23,7 @@
 #ifndef LINUX_CAPEBUS_BONE_H
 #define LINUX_CAPEBUS_BONE_H
 
+#include <linux/list.h>
 #include <linux/capebus.h>
 
 struct bone_capebus_slot {
@@ -88,14 +89,26 @@ int bone_capebus_register_pdev_adapters(struct bone_capebus_bus *bus);
 void bone_capebus_unregister_pdev_adapters(struct bone_capebus_bus *bus);
 
 /* generic cape support */
+
+struct bone_capebus_generic_device_data {
+	const char *name;
+	const struct of_device_id *of_match;
+	unsigned int units;
+};
+
+struct bone_capebus_generic_device_entry {
+	struct list_head node;
+	const struct bone_capebus_generic_device_data *data;
+	struct platform_device *pdev;
+};
+
 struct bone_capebus_generic_info {
 	struct cape_dev *dev;
-	struct platform_device *leds_pdev;
-	struct platform_device *da8xx_dt_pdev;
-	struct platform_device *tps_bl_pdev;
-	struct platform_device *keys_pdev;
-	struct platform_device *tscadc_dt_pdev;
+	struct list_head pdev_list;
 };
+
+int bone_capebus_probe_prolog(struct cape_dev *dev,
+		const struct cape_device_id *id);
 
 struct bone_capebus_generic_info *
 bone_capebus_probe_generic(struct cape_dev *dev,
