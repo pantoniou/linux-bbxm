@@ -117,7 +117,19 @@ static const struct bone_capebus_generic_device_data gendevs[] = {
 				{ .compatible = "da8xx-dt", }, { },
 			},
 		.units	 = 1,
-	},
+	},{
+		.name	= "i2c-dt",
+		.of_match = (const struct of_device_id []) {
+				{ .compatible = "i2c-dt", }, { },
+			},
+		.units	 = 0,
+	}, {
+		.name	= "w1-dt",
+		.of_match = (const struct of_device_id []) {
+				{ .compatible = "w1-dt", }, { }
+			},
+		.units	 = 0,
+	}
 };
 
 struct bone_capebus_generic_info *
