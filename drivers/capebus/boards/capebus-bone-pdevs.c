@@ -44,6 +44,8 @@
 #include <linux/input/ti_tsc.h>
 #include <linux/platform_data/ti_adc.h>
 #include <linux/mfd/ti_tscadc.h>
+#include <linux/i2c.h>
+#include <linux/of_i2c.h>
 
 #include <linux/capebus/capebus-bone.h>
 
@@ -303,6 +305,91 @@ static struct platform_driver ti_tscadc_dt_driver = {
 
 #endif
 
+struct i2c_priv {
+	struct i2c_adapter *i2c_adapter;
+	phandle parent_handle;
+};
+
+static const struct of_device_id of_i2c_dt_match[] = {
+	{ .compatible = "i2c-dt", },
+	{},
+};
+
+static int __devinit i2c_dt_probe(struct platform_device *pdev)
+{
+	struct i2c_priv *priv = NULL;
+	int ret = -EINVAL;
+	struct device_node *adap_node;
+	u32 val;
+
+	if (pdev->dev.of_node == NULL) {
+		dev_err(&pdev->dev, "Only support OF case\n");
+		return -ENOMEM;
+	}
+
+	priv = devm_kzalloc(&pdev->dev, sizeof(*priv), GFP_KERNEL);
+	if (priv == NULL) {
+		dev_err(&pdev->dev, "Failed to allocate priv\n");
+		return -ENOMEM;
+	}
+
+	ret = of_property_read_u32(pdev->dev.of_node, "parent", &val);
+	if (ret != 0) {
+		dev_err(&pdev->dev, "Failed to find parent property\n");
+		goto err_prop_fail;
+	}
+	priv->parent_handle = val;
+
+	adap_node = of_find_node_by_phandle(priv->parent_handle);
+	if (adap_node == NULL) {
+		dev_err(&pdev->dev, "Failed to find i2c adapter node\n");
+		ret = -EINVAL;
+		goto err_node_fail;
+	}
+
+	priv->i2c_adapter = of_find_i2c_adapter_by_node(adap_node);
+	if (priv->i2c_adapter == NULL) {
+		dev_err(&pdev->dev, "Failed to find i2c adapter node\n");
+		ret = -EINVAL;
+		goto err_adap_fail;
+	}
+
+	of_i2c_register_node_devices(priv->i2c_adapter, pdev->dev.of_node);
+
+	of_node_put(adap_node);
+
+	dev_info(&pdev->dev, "Registered bone I2C OK.\n");
+
+	platform_set_drvdata(pdev, priv);
+
+	return 0;
+err_adap_fail:
+	of_node_put(adap_node);
+err_node_fail:
+	/* nothing */
+err_prop_fail:
+	devm_kfree(&pdev->dev, priv);
+	return ret;
+}
+
+static int __devexit i2c_dt_remove(struct platform_device *pdev)
+{
+	return -EINVAL;	/* not supporting removal yet */
+}
+
+static struct platform_driver i2c_dt_driver = {
+	.probe		= i2c_dt_probe,
+	.remove		= __devexit_p(i2c_dt_remove),
+	.driver		= {
+		.name	= "i2c-dt",
+		.owner	= THIS_MODULE,
+		.of_match_table = of_i2c_dt_match,
+	},
+};
+
+/*
+ *
+ */
 struct bone_capebus_pdev_driver {
 	struct platform_driver *driver;
 	unsigned int registered : 1;
@@ -320,6 +407,9 @@ static struct bone_capebus_pdev_driver pdev_drivers[] = {
 		.driver		= &ti_tscadc_dt_driver,
 	},
 #endif
+	{
+		.driver		= &i2c_dt_driver,
+	},
 	{
 		.driver		= NULL,
 	}
