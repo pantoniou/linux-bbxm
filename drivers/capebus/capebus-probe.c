@@ -283,6 +283,10 @@ int cape_bus_register_slot(struct cape_bus *bus, struct cape_slot *slot,
 		}
 
 		list_add_tail(&dev->bus_list, &bus->devices);
+
+		if (dev->bus->ops->dev_registered)
+			(*dev->bus->ops->dev_registered)(dev);
+
 	}
 
 err_unlock:

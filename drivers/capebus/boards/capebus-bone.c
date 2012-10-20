@@ -432,42 +432,41 @@ struct bonedev_ee_attribute ee_attrs[] = {
 	BONEDEV_EE_ATTR(dc-supplied, DC_SUPPLIED),
 };
 
+static struct attribute *ee_attrs_flat[] = {
+	&ee_attrs[BONE_CAPEBUS_HEADER		].devattr.attr,
+	&ee_attrs[BONE_CAPEBUS_EEPROM_REV	].devattr.attr,
+	&ee_attrs[BONE_CAPEBUS_BOARD_NAME	].devattr.attr,
+	&ee_attrs[BONE_CAPEBUS_VERSION		].devattr.attr,
+	&ee_attrs[BONE_CAPEBUS_MANUFACTURER	].devattr.attr,
+	&ee_attrs[BONE_CAPEBUS_PART_NUMBER	].devattr.attr,
+	&ee_attrs[BONE_CAPEBUS_NUMBER_OF_PINS	].devattr.attr,
+	&ee_attrs[BONE_CAPEBUS_SERIAL_NUMBER	].devattr.attr,
+	&ee_attrs[BONE_CAPEBUS_PIN_USAGE	].devattr.attr,
+	&ee_attrs[BONE_CAPEBUS_VDD_3V3EXP	].devattr.attr,
+	&ee_attrs[BONE_CAPEBUS_VDD_5V		].devattr.attr,
+	&ee_attrs[BONE_CAPEBUS_SYS_5V		].devattr.attr,
+	&ee_attrs[BONE_CAPEBUS_DC_SUPPLIED	].devattr.attr,
+	NULL,
+};
+
+static const struct attribute_group bone_ee_attrgroup = {
+	.name		= "ee-fields",
+	.is_visible 	= NULL,
+	.attrs 		= ee_attrs_flat,
+};
+
 static int bone_capebus_sysfs_register(struct cape_dev *dev)
 {
-	int i;
-	int err;
-
-	for (i = 0; i < ARRAY_SIZE(ee_attrs); i++) {
-		err = device_create_file(&dev->dev, &ee_attrs[i].devattr);
-		if (err != 0) {
-			while (--i >= 0)
-				device_remove_file(&dev->dev,
-						&ee_attrs[i].devattr);
-			return err;
-		}
-	}
-
-	return 0;
+	return sysfs_create_group(&dev->dev.kobj, &bone_ee_attrgroup);
 }
 
 static void bone_capebus_sysfs_unregister(struct cape_dev *dev)
 {
-	int i;
-
-	i = ARRAY_SIZE(ee_attrs);
-	while (--i >= 0)
-		device_remove_file(&dev->dev, &ee_attrs[i].devattr);
+	sysfs_remove_group(&dev->dev.kobj, &bone_ee_attrgroup);
 }
 
 static int bone_capebus_dev_probed(struct cape_dev *dev)
 {
-	int ret;
-
-	ret = bone_capebus_sysfs_register(dev);
-	if (ret != 0) {
-		dev_err(&dev->dev, "bone_capebus sysfs registration failed\n");
-		return ret;
-	}
 	return 0;
 }
 
@@ -476,11 +475,25 @@ static void bone_capebus_dev_removed(struct cape_dev *dev)
 	bone_capebus_sysfs_unregister(dev);
 }
 
+static int bone_capebus_dev_registered(struct cape_dev *dev)
+{
+	int ret;
+
+	ret = bone_capebus_sysfs_register(dev);
+	if (ret != 0) {
+		dev_err(&dev->dev, "bone_capebus sysfs registration failed\n");
+		return ret;
+	}
+
+	return 0;
+}
+
 static struct cape_bus_ops bone_capebus_ops = {
 	.get_dev_id 		= bone_capebus_get_dev_id,
 	.get_text_dev_id	= bone_capebus_get_text_dev_id,
 	.dev_probed		= bone_capebus_dev_probed,
 	.dev_removed		= bone_capebus_dev_removed,
+	.dev_registered		= bone_capebus_dev_registered,
 };
 
 static int __devinit
