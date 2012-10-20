@@ -458,7 +458,7 @@ capebus_of_platform_compatible_device_create(struct cape_dev *dev,
 	node = capebus_of_compatible_device_property_match(dev, matches, prop,
 			prop_value);
 	if (node == NULL)
-		return ERR_PTR(-ENODEV);
+		return ERR_PTR(-ENXIO);
 
 	pdev = of_platform_device_create(node, pdev_name, dev->bus->dev.parent);
 
