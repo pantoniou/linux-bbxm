@@ -89,8 +89,9 @@ void capebus_unregister_driver(struct cape_driver *dev);
 struct cape_bus_ops {
 	const struct cape_device_id *(*get_dev_id)(struct cape_slot *slot);
 	const char *(*get_text_dev_id)(struct cape_slot *slot);
-	int (*dev_probed)(struct cape_dev *dev);
-	void (*dev_removed)(struct cape_dev *dev);
+	int (*dev_probed)(struct cape_dev *dev);	/* probed succesfully */
+	void (*dev_removed)(struct cape_dev *dev);	/* removed */
+	int (*dev_registered)(struct cape_dev *dev);	/* registered OK */
 };
 
 struct cape_bus {
