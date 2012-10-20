@@ -246,6 +246,10 @@
 				compatible = "bone-lcd7-cape";
 			};
 
+			bone_weather_cape: cape@4 {
+				compatible = "bone-generic-cape";
+			};
+
 			/* overrides; no EEPROM (prototyping) */
 //			override@3 {
 //				compatible = "bone-capebus-slot-override";
@@ -253,6 +257,15 @@
 //				board-name = "Geiger Cape";
 //				version = "00A0";
 //				manufacturer = "Geiger Inc";
+//				/* TODO: Add the rest */
+//			};
+
+//			override@2 {
+//				compatible = "bone-capebus-slot-override";
+//				slot = <2>;
+//				board-name = "Weather Cape";
+//				version = "00A0";
+//				manufacturer = "CCO Inc";
 //				/* TODO: Add the rest */
 //			};
 	};
@@ -712,4 +725,35 @@
 			};
 		};
 	};
+};
+
+&bone_weather_cape {
+	board-name = "Weather Cape";
+
+	i2c2-devices {
+		compatible = "i2c-dt";
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		parent = <&i2c2>;
+
+		/* Ambient light sensor */
+		tsl2550@39 {
+			compatible = "tsl,tsl2550";
+			reg = <0x39>;
+		};
+
+		/* Humidity Sensor */
+		sht21@40 {
+			compatible = "sensiron,sht21";
+			reg = <0x40>;
+		};
+
+		/* Barometric pressure sensor */
+		bmp085@77 {
+			compatible = "bosch,bmp085";
+			reg = <0x77>;
+		};
+	};
+
 };
