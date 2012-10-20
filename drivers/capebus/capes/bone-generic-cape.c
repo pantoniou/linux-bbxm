@@ -60,6 +60,11 @@ static int bonegeneric_probe(struct cape_dev *dev,
 		const struct cape_device_id *id)
 {
 	struct bone_capebus_generic_info *ginfo;
+	int err;
+
+	err = bone_capebus_probe_prolog(dev, id);
+	if (err != 0)
+		return err;
 
 	ginfo = bone_capebus_probe_generic(dev, id);
 	if (IS_ERR_OR_NULL(ginfo))

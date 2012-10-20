@@ -45,6 +45,8 @@ extern struct cape_driver bonegeiger_driver;
 struct bone_geiger_info {
 	struct cape_dev *dev;
 	struct platform_device *leds_pdev;
+	struct platform_device *tscadc_pdev;
+
 	struct pwm_device *pwm_dev;
 	int pwm_frequency;
 	int pwm_duty_cycle;
@@ -56,7 +58,6 @@ struct bone_geiger_info {
 	struct led_trigger *run_led;		/* running      */
 	unsigned long event_blink_delay;
 	struct sysfs_dirent *counter_sd;	/* notifier */
-	struct platform_device *tscadc_pdev;
 	const char *vsense_name;
 	unsigned int vsense_scale;
 	struct iio_channel *vsense_channel;
@@ -392,6 +393,15 @@ static int bonegeiger_probe(struct cape_dev *dev, const struct cape_device_id *i
 	led_trigger_register_simple("geiger-event", &info->event_led);
 	led_trigger_register_simple("geiger-run", &info->run_led);
 
+	info->tscadc_pdev = capebus_of_platform_compatible_device_create(dev,
+			ti_tscadc_dt_of_match, "geiger-cape-ti-tscadc",
+			"version", version);
+	if (info->tscadc_pdev == NULL) {
+		dev_err(&dev->dev, "Could not create tsc_adc device\n");
+		err = -ENODEV;
+		goto err_no_tsc_pdev;
+	}
+
 	/* must be last, for the led-trigger to be picked up */
 	info->leds_pdev = capebus_of_platform_compatible_device_create(dev,
 			gpio_leds_of_match, "geiger-cape-leds",
@@ -416,15 +426,6 @@ static int bonegeiger_probe(struct cape_dev *dev, const struct cape_device_id *i
 					val);
 	}
 	info->event_blink_delay = val;
-
-	info->tscadc_pdev = capebus_of_platform_compatible_device_create(dev,
-			ti_tscadc_dt_of_match, "geiger-cape-ti-tscadc",
-			"version", version);
-	if (info->tscadc_pdev == NULL) {
-		dev_err(&dev->dev, "Could not create tsc_adc device\n");
-		err = -ENODEV;
-		goto err_no_tsc_pdev;
-	}
 
 	/* default */
 	if (capebus_of_property_read_string(dev,

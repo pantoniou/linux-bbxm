@@ -444,6 +444,7 @@
 &bone_geiger_cape {
 	board-name = "Geiger Cape";
 
+	/* note that these can't be versioned... */
 	pinctrl-names = "default";
 	pinctrl-0 = <&bone_geiger_cape_pins>;
 
