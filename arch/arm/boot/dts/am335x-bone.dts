@@ -404,6 +404,10 @@
 	phy_id = "4a101000.mdio:01";
 };
 
+&ehrpwm1 {
+	status = "okay";
+};
+
 &capebus {
 	slots = <&cape_eeprom_0 &cape_eeprom_1 &cape_eeprom_2 &cape_eeprom_3>;
 };
