@@ -51,11 +51,13 @@ static void set_power_scale(unsigned int cpu, unsigned long power)
 	per_cpu(cpu_scale, cpu) = power;
 }
 
-#ifdef CONFIG_OF
 struct cpu_efficiency {
 	const char *compatible;
 	unsigned long efficiency;
 };
+
+#define ARM_CORTEX_A15_EFF	3891
+#define ARM_CORTEX_A7_EFF	2048
 
 /*
  * Table of relative efficiency of each processors
@@ -68,8 +70,8 @@ struct cpu_efficiency {
  * use the default SCHED_POWER_SCALE value for cpu_scale.
  */
 struct cpu_efficiency table_efficiency[] = {
-	{"arm,cortex-a15", 3891},
-	{"arm,cortex-a7",  2048},
+	{"arm,cortex-a15", ARM_CORTEX_A15_EFF },
+	{"arm,cortex-a7",  ARM_CORTEX_A7_EFF  },
 	{NULL, },
 };
 
@@ -90,7 +92,7 @@ unsigned long middle_capacity = 1;
  * 'average' CPU is of middle power. Also see the comments near
  * table_efficiency[] and update_cpu_power().
  */
-static void __init parse_dt_topology(void)
+static void __init parse_topology(void)
 {
 	struct cpu_efficiency *cpu_eff;
 	struct device_node *cn = NULL;
@@ -98,38 +100,101 @@ static void __init parse_dt_topology(void)
 	unsigned long max_capacity = 0;
 	unsigned long capacity = 0;
 	int alloc_size, cpu = 0;
+	struct cpumask cpu_mask;
+	unsigned long freq;
 
 	alloc_size = nr_cpu_ids * sizeof(struct cpu_capacity);
 	cpu_capacity = (struct cpu_capacity *)kzalloc(alloc_size, GFP_NOWAIT);
 
-	while ((cn = of_find_node_by_type(cn, "cpu"))) {
-		const u32 *rate, *reg;
-		int len;
+	/* fill everything with defaults for starters */
+	for (cpu = 0; cpu < num_possible_cpus(); cpu++) {
+		cpu_capacity[cpu].capacity = SCHED_POWER_SCALE;
+		cpu_capacity[cpu].hwid = -1;
+	}
 
-		if (cpu >= num_possible_cpus())
-			break;
+	if (of_have_populated_dt()) {
+		while ((cn = of_find_node_by_type(cn, "cpu"))) {
+			const u32 *rate, *reg;
+			int len;
 
-		for (cpu_eff = table_efficiency; cpu_eff->compatible; cpu_eff++)
-			if (of_device_is_compatible(cn, cpu_eff->compatible))
+			if (cpu >= num_possible_cpus())
 				break;
 
-		if (cpu_eff->compatible == NULL)
-			continue;
+			for (cpu_eff = table_efficiency; cpu_eff->compatible; cpu_eff++)
+				if (of_device_is_compatible(cn, cpu_eff->compatible))
+					break;
 
-		rate = of_get_property(cn, "clock-frequency", &len);
-		if (!rate || len != 4) {
-			pr_err("%s missing clock-frequency property\n",
-				cn->full_name);
-			continue;
+			if (cpu_eff->compatible == NULL)
+				continue;
+
+			rate = of_get_property(cn, "clock-frequency", &len);
+			if (!rate || len != 4) {
+				pr_err("%s missing clock-frequency property\n",
+					cn->full_name);
+				continue;
+			}
+
+			reg = of_get_property(cn, "reg", &len);
+			if (!reg || len != 4) {
+				pr_err("%s missing reg property\n", cn->full_name);
+				continue;
+			}
+
+			capacity = ((be32_to_cpup(rate)) >> 20) * cpu_eff->efficiency;
+
+			cpu_capacity[cpu].capacity = capacity;
+			cpu_capacity[cpu++].hwid = be32_to_cpup(reg);
 		}
 
-		reg = of_get_property(cn, "reg", &len);
-		if (!reg || len != 4) {
-			pr_err("%s missing reg property\n", cn->full_name);
-			continue;
-		}
+	} else {
 
-		capacity = ((be32_to_cpup(rate)) >> 20) * cpu_eff->efficiency;
+#if defined(CONFIG_HMP_FAST_CPU_MASK) && defined(CONFIG_HMP_FAST_MAX_FREQ)
+		cpumask_clear(&cpu_mask);
+		if (cpulist_parse(CONFIG_HMP_FAST_CPU_MASK, &cpu_mask))
+			printk(KERN_WARNING "arm-topo: Failed to parse "
+					"HMP fast cpu mask\n");
+
+		freq = simple_strtoul(CONFIG_HMP_FAST_MAX_FREQ, NULL, 10);
+
+		/* fill everything with defaults for starters */
+		for (cpu = 0; cpu < num_possible_cpus(); cpu++) {
+
+			if (!cpumask_test_cpu(cpu, &cpu_mask))
+				continue;
+
+			cpu_capacity[cpu].capacity = ARM_CORTEX_A15_EFF * freq;
+			cpu_capacity[cpu].hwid = cpu;
+		}
+#endif
+
+#if defined(CONFIG_HMP_SLOW_CPU_MASK) && defined(CONFIG_HMP_SLOW_MAX_FREQ)
+		cpumask_clear(&cpu_mask);
+		if (cpulist_parse(CONFIG_HMP_SLOW_CPU_MASK, &cpu_mask))
+			printk(KERN_WARNING "arm-topo: Failed to parse "
+					"HMP slow cpu mask\n");
+
+		freq = simple_strtoul(CONFIG_HMP_SLOW_MAX_FREQ, NULL, 10);
+
+		/* fill everything with defaults for starters */
+		for (cpu = 0; cpu < num_possible_cpus(); cpu++) {
+
+			if (!cpumask_test_cpu(cpu, &cpu_mask))
+				continue;
+
+			cpu_capacity[cpu].capacity = ARM_CORTEX_A7_EFF * freq;
+			cpu_capacity[cpu].hwid = cpu;
+		}
+#endif
+	}
+
+	/* find max/min capacities */
+	for (cpu = 0; cpu < num_possible_cpus(); cpu++) {
+
+		/* skip those with hwid -1 */
+		if (cpu_capacity[cpu].hwid == -1)
+			continue;
+
+		capacity = cpu_capacity[cpu].capacity;
 
 		/* Save min capacity of the system */
 		if (capacity < min_capacity)
@@ -138,13 +203,7 @@ static void __init parse_dt_topology(void)
 		/* Save max capacity of the system */
 		if (capacity > max_capacity)
 			max_capacity = capacity;
-
-		cpu_capacity[cpu].capacity = capacity;
-		cpu_capacity[cpu++].hwid = be32_to_cpup(reg);
 	}
-
-	if (cpu < num_possible_cpus())
-		cpu_capacity[cpu].hwid = (unsigned long)(-1);
 
 	/* If min and max capacities are equals, we bypass the update of the
 	 * cpu_scale because all CPUs have the same capacity. Otherwise, we
@@ -153,15 +212,33 @@ static void __init parse_dt_topology(void)
 	 * SCHED_POWER_SCALE, which is the default value, but with the
 	 * constraint explained near table_efficiency[].
 	 */
-	if (min_capacity == max_capacity)
-		cpu_capacity[0].hwid = (unsigned long)(-1);
-	else if (4*max_capacity < (3*(max_capacity + min_capacity)))
+	if (min_capacity == max_capacity) {
+
+		printk(KERN_INFO "arm-topo: All CPUs of same capacity\n");
+		/* fill everything with defaults for starters */
+		for (cpu = 0; cpu < num_possible_cpus(); cpu++) {
+			cpu_capacity[cpu].capacity = SCHED_POWER_SCALE;
+			cpu_capacity[cpu].hwid = -1;
+		}
+
+		return;
+
+	}
+
+	if (4*max_capacity < (3*(max_capacity + min_capacity)))
 		middle_capacity = (min_capacity + max_capacity)
 				>> (SCHED_POWER_SHIFT+1);
 	else
 		middle_capacity = ((max_capacity / 3)
 				>> (SCHED_POWER_SHIFT-1)) + 1;
 
+	printk(KERN_INFO "arm-topo: capacity max/min/mid %lu/%lu/%lu\n",
+			max_capacity, min_capacity, middle_capacity);
+
+	for (cpu = 0; cpu < num_possible_cpus(); cpu++)
+		printk(KERN_INFO "arm-topo: cpu%d: capacity=%lu, hwid=%ld\n",
+			cpu, cpu_capacity[cpu].capacity,
+			(long)cpu_capacity[cpu].hwid);
 }
 
 /*
@@ -190,12 +267,6 @@ void update_cpu_power(unsigned int cpu, unsigned long hwid)
 	printk(KERN_INFO "CPU%u: update cpu_power %lu\n",
 		cpu, arch_scale_freq_power(NULL, cpu));
 }
-
-#else
-static inline void parse_dt_topology(void) {}
-static inline void update_cpu_power(unsigned int cpuid, unsigned int mpidr) {}
-#endif
-
 
 /*
  * cpu topology management
@@ -440,5 +511,5 @@ void __init init_cpu_topology(void)
 	}
 	smp_wmb();
 
-	parse_dt_topology();
+	parse_topology();
 }

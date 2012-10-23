@@ -1595,6 +1595,13 @@ config HMP_FAST_CPU_MASK
 	  Specify the cpuids of the fast CPUs in the system as a list string,
 	  e.g. cpuid 0+1 should be specified as 0-1.
 
+config HMP_FAST_MAX_FREQ
+	string "HMP scheduler fast CPU maximum frequency"
+	depends on SCHED_HMP
+	help
+	  Leave empty to use device tree.
+	  Specify the maximum frequency of the A15s (in MHz units).
+
 config HMP_SLOW_CPU_MASK
 	string "HMP scheduler slow CPU mask"
 	depends on SCHED_HMP
@@ -1602,6 +1609,13 @@ config HMP_SLOW_CPU_MASK
 	  Leave empty to use device tree information.
 	  Specify the cpuids of the slow CPUs in the system as a list string,
 	  e.g. cpuid 0+1 should be specified as 0-1.
+
+config HMP_SLOW_MAX_FREQ
+	string "HMP scheduler slow CPU maximum frequency"
+	depends on SCHED_HMP
+	help
+	  Leave empty to use device tree.
+	  Specify the maximum frequency of the A7s (in MHz units).
 
 config HAVE_ARM_SCU
 	bool
