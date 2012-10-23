@@ -409,6 +409,14 @@ void __init arch_get_hmp_domains(struct list_head *hmp_domains_list)
 }
 #endif /* CONFIG_SCHED_HMP */
 
+/* called very early in the boot process */
+void __init arch_init_cpu_power(void)
+{
+	unsigned int cpu;
+
+	for_each_possible_cpu(cpu)
+		set_power_scale(cpu, SCHED_POWER_SCALE);
+}
 
 /*
  * init_cpu_topology is called at boot when only one cpu is running

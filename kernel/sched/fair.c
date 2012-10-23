@@ -4451,6 +4451,11 @@ unsigned long __weak arch_scale_freq_power(struct sched_domain *sd, int cpu)
 	return default_scale_freq_power(sd, cpu);
 }
 
+void __weak __init arch_init_cpu_power(void)
+{
+	/* nothing */
+}
+
 unsigned long default_scale_smt_power(struct sched_domain *sd, int cpu)
 {
 	unsigned long weight = sd->span_weight;
@@ -6630,10 +6635,16 @@ __init void init_sched_fair_class(void)
 	cpu_notifier(sched_ilb_notifier, 0);
 #endif
 
+	arch_init_cpu_power();
+
 #ifdef CONFIG_SCHED_HMP
 	hmp_cpu_mask_setup();
 #endif
+
+#ifdef CONFIG_FAIR_GROUP_SCHED
 	load_avg_tables_setup();
+#endif
+
 #endif /* SMP */
 
 }
