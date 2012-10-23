@@ -129,6 +129,12 @@ static const struct bone_capebus_generic_device_data gendevs[] = {
 				{ .compatible = "w1-dt", }, { }
 			},
 		.units	 = 0,
+	}, {
+		.name	= "pwm-backlight",
+		.of_match = (const struct of_device_id []) {
+				{ .compatible = "pwm-backlight", }, { },
+			},
+		.units	 = 0,	/* no limit */
 	}
 };
 
