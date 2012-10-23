@@ -46,6 +46,7 @@
 #include <linux/mfd/ti_tscadc.h>
 #include <linux/i2c.h>
 #include <linux/of_i2c.h>
+#include <linux/spi/spi.h>
 
 #include <linux/capebus/capebus-bone.h>
 
@@ -387,6 +388,110 @@ static struct platform_driver i2c_dt_driver = {
 	},
 };
 
+struct spi_priv {
+	struct spi_master *master;
+	phandle parent_handle;
+};
+
+static const struct of_device_id of_spi_dt_match[] = {
+	{ .compatible = "spi-dt", },
+	{},
+};
+
+static int of_dev_node_match(struct device *dev, void *data)
+{
+        return dev->of_node == data;
+}
+
+/* must call put_device() when done with returned i2c_adapter device */
+static struct spi_master *of_find_spi_master_by_node(struct device_node *node)
+{
+	struct device *dev;
+	struct spi_master *master;
+
+	dev = class_find_device(&spi_master_class, NULL, node,
+					 of_dev_node_match);
+	if (!dev)
+		return NULL;
+
+	master = container_of(dev, struct spi_master, dev);
+
+	/* TODO: No checks what-so-ever... be careful. */
+	return master;
+}
+
+static int __devinit spi_dt_probe(struct platform_device *pdev)
+{
+	struct spi_priv *priv = NULL;
+	int ret = -EINVAL;
+	struct device_node *master_node;
+	u32 val;
+
+	if (pdev->dev.of_node == NULL) {
+		dev_err(&pdev->dev, "Only support OF case\n");
+		return -ENOMEM;
+	}
+
+	priv = devm_kzalloc(&pdev->dev, sizeof(*priv), GFP_KERNEL);
+	if (priv == NULL) {
+		dev_err(&pdev->dev, "Failed to allocate priv\n");
+		return -ENOMEM;
+	}
+
+	ret = of_property_read_u32(pdev->dev.of_node, "parent", &val);
+	if (ret != 0) {
+		dev_err(&pdev->dev, "Failed to find parent property\n");
+		goto err_prop_fail;
+	}
+	priv->parent_handle = val;
+
+	master_node = of_find_node_by_phandle(priv->parent_handle);
+	if (master_node == NULL) {
+		dev_err(&pdev->dev, "Failed to find spi bus master node\n");
+		ret = -EINVAL;
+		goto err_node_fail;
+	}
+
+	priv->master = of_find_spi_master_by_node(master_node);
+	if (priv->master == NULL) {
+		dev_err(&pdev->dev, "Failed to find bus master node\n");
+		ret = -EINVAL;
+		goto err_master_fail;
+	}
+
+	of_register_node_spi_devices(priv->master, pdev->dev.of_node);
+
+	of_node_put(master_node);
+
+	dev_info(&pdev->dev, "Registered bone SPI OK.\n");
+
+	platform_set_drvdata(pdev, priv);
+
+	return 0;
+err_master_fail:
+	of_node_put(master_node);
+err_node_fail:
+	/* nothing */
+err_prop_fail:
+	devm_kfree(&pdev->dev, priv);
+	return ret;
+}
+
+static int __devexit spi_dt_remove(struct platform_device *pdev)
+{
+	return -EINVAL;	/* not supporting removal yet */
+}
+
+static struct platform_driver spi_dt_driver = {
+	.probe		= spi_dt_probe,
+	.remove		= __devexit_p(spi_dt_remove),
+	.driver		= {
+		.name	= "spi-dt",
+		.owner	= THIS_MODULE,
+		.of_match_table = of_spi_dt_match,
+	},
+};
+
 /*
  *
  */
@@ -409,6 +514,9 @@ static struct bone_capebus_pdev_driver pdev_drivers[] = {
 #endif
 	{
 		.driver		= &i2c_dt_driver,
+	},
+	{
+		.driver		= &spi_dt_driver,
 	},
 	{
 		.driver		= NULL,
