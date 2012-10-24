@@ -29,9 +29,9 @@
 #include <linux/math64.h>
 #include <linux/atomic.h>
 #include <linux/leds.h>
-#include <linux/input/ti_tsc.h>
+#include <linux/input/ti_am335x_tsc.h>
 #include <linux/platform_data/ti_adc.h>
-#include <linux/mfd/ti_tscadc.h>
+#include <linux/mfd/ti_am335x_tscadc.h>
 #include <plat/omap_device.h>
 #include <linux/iio/iio.h>
 #include <linux/iio/machine.h>
