@@ -126,7 +126,7 @@ static const struct bone_capebus_generic_device_data gendevs[] = {
 	}, {
 		.name	= "w1-gpio",
 		.of_match = (const struct of_device_id []) {
-				{ .compatible = "w1-gpio", }, { }
+				{ .compatible = "w1-gpio", }, { },
 			},
 		.units	 = 0,
 	}, {
