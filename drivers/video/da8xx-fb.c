@@ -270,6 +270,48 @@ static struct da8xx_panel known_lcd_panels[] = {
 		.pxl_clk = 7833600,
 		.invert_pxl_clk = 0,
 	},
+	[3] = {
+		 /* 1024 x 768 @ 60 Hz  Reduced blanking VESA CVT 0.79M3-R */
+		.name = "1024x768@60",
+		.width = 1024,
+		.height = 768,
+		.hfp = 48,
+		.hbp = 80,
+		.hsw = 32,
+		.vfp = 3,
+		.vbp = 15,
+		.vsw = 4,
+		.pxl_clk = 56000000,
+		.invert_pxl_clk = 0,
+	},
+	[4] = {
+		/* CDTech S035Q01 */
+		.name = "CDTech_S035Q01",
+		.width = 320,
+		.height = 240,
+		.hfp = 58,
+		.hbp = 21,
+		.hsw = 47,
+		.vfp = 23,
+		.vbp = 11,
+		.vsw = 2,
+		.pxl_clk = 8000000,
+		.invert_pxl_clk = 0,
+	},
+	/* ThreeFive S9700RTWV35TR */
+	[5] = {
+		.name = "TFC_S9700RTWV35TR_01B",
+		.width = 800,
+		.height = 480,
+		.hfp = 39,
+		.hbp = 39,
+		.hsw = 47,
+		.vfp = 13,
+		.vbp = 29,
+		.vsw = 2,
+		.pxl_clk = 30000000,
+		.invert_pxl_clk = 0,
+	},
 };
 
 /* Enable the Raster Engine of the LCD Controller */
@@ -1283,6 +1325,7 @@ static int __devinit fb_probe(struct platform_device *device)
 		lcd_revision = LCD_VERSION_1;
 		break;
 	case 0x4F200800:
+	case 0x4F201000:
 		lcd_revision = LCD_VERSION_2;
 		break;
 	default:
