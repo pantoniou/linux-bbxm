@@ -124,11 +124,23 @@ static const struct bone_capebus_generic_device_data gendevs[] = {
 			},
 		.units	 = 0,
 	}, {
-		.name	= "w1-dt",
+		.name	= "w1-gpio",
 		.of_match = (const struct of_device_id []) {
-				{ .compatible = "w1-dt", }, { }
+				{ .compatible = "w1-gpio", }, { },
 			},
 		.units	 = 0,
+	}, {
+		.name	= "pwm-backlight",
+		.of_match = (const struct of_device_id []) {
+				{ .compatible = "pwm-backlight", }, { },
+			},
+		.units	 = 0,	/* no limit */
+	}, {
+		.name	= "spi-dt",
+		.of_match = (const struct of_device_id []) {
+				{ .compatible = "spi-dt", }, { },
+			},
+		.units	 = 0,	/* no limit */
 	}
 };
 
