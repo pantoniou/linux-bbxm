@@ -183,6 +183,12 @@
 				// 0x48 0x06       /* gpmc_a2.ehrpwm1a, OMAP_MUX_MODE6 | AM33XX_PIN_OUTPUT */
 			>;
 	       };
+
+		weather_cape_w1_pins: pinmux_weather_cape_w1_pins {
+			pinctrl-single,pins = <
+				0x0c 0x37       /* gpmc_ad3.gpio1_3, OMAP_PIN_INPUT_PULLUP | OMAP_MUX_MODE7 - w1-gpio */
+			>;
+		};
 	};
 
 	ocp {
@@ -740,7 +746,7 @@
 };
 
 &bone_weather_cape {
-	board-name = "Weather Cape";
+	board-name = "BeagleBone Weather CAPE";
 
 	i2c2-devices {
 		compatible = "i2c-dt";
@@ -766,6 +772,14 @@
 			compatible = "bosch,bmp085";
 			reg = <0x77>;
 		};
+	};
+
+	onewire {
+		compatible	= "w1-gpio";
+		pinctrl-names	= "default";
+		pinctrl-0	= <&weather_cape_w1_pins>;
+
+		gpios = <&gpio1 3 0>;
 	};
 
 };
