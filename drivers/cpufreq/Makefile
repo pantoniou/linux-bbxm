@@ -59,3 +59,4 @@ obj-$(CONFIG_CPU_FREQ_MAPLE)		+= maple-cpufreq.o
 # Virtual driver
 obj-$(CONFIG_VCPUFREQ)     		+= vcpufreq.o
 obj-$(CONFIG_VCPUFREQ_OMAP2PLUS) 	+= vcpufreq-omap.o
+obj-$(CONFIG_VCPUFREQ_HRTIMER) 		+= vcpufreq-hrtimer.o

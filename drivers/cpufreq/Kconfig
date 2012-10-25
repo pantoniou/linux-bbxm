@@ -223,6 +223,10 @@ if VCPUFREQ
 choice
 	prompt "VCPUFREQ Platform glue Layer"
 
+config VCPUFREQ_HRTIMER
+	bool "HRTIMER based VCPUFREQ driver"
+	depends on HIGH_RES_TIMERS
+
 config VCPUFREQ_OMAP2PLUS
 	bool "OMAP VCPUFREQ driver"
 	depends on ARCH_OMAP2PLUS
