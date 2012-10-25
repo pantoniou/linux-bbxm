@@ -20,6 +20,8 @@
  *  Copyright (C) 2007 Red Hat, Inc., Peter Zijlstra <pzijlstr@redhat.com>
  */
 
+#define DEBUG
+
 #include <linux/latencytop.h>
 #include <linux/sched.h>
 #include <linux/cpumask.h>
