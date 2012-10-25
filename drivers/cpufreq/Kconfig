@@ -205,5 +205,31 @@ depends on PPC32 || PPC64
 source "drivers/cpufreq/Kconfig.powerpc"
 endmenu
 
+
+config VCPUFREQ
+	bool "Virtual CPU freq driver"
+	depends on CPU_FREQ
+	select CPU_FREQ_TABLE
+	help
+	  This driver implements a cycle-soaker cpufreq driver.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called vcpufreq.
+
+	  If in doubt, say N.
+
+if VCPUFREQ
+
+choice
+	prompt "VCPUFREQ Platform glue Layer"
+
+config VCPUFREQ_OMAP2PLUS
+	bool "OMAP VCPUFREQ driver"
+	depends on ARCH_OMAP2PLUS
+
+endchoice
+
+endif
+
 endif
 endmenu
