@@ -259,7 +259,7 @@ static int __init omap_cpufreq_init(void)
 		return -EINVAL;
 	}
 
-	mpu_reg = regulator_get(mpu_dev, "vcc");
+	mpu_reg = regulator_get(mpu_dev, "vdd_mpu");
 	if (IS_ERR(mpu_reg)) {
 		pr_warning("%s: unable to get MPU regulator\n", __func__);
 		mpu_reg = NULL;
