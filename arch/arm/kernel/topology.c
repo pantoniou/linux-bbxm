@@ -78,6 +78,7 @@ struct cpu_efficiency table_efficiency[] = {
 struct cpu_capacity {
 	unsigned long hwid;
 	unsigned long capacity;
+	unsigned int  sched_power;
 };
 
 struct cpu_capacity *cpu_capacity;
@@ -143,7 +144,8 @@ static void __init parse_topology(void)
 			capacity = ((be32_to_cpup(rate)) >> 20) * cpu_eff->efficiency;
 
 			cpu_capacity[cpu].capacity = capacity;
-			cpu_capacity[cpu++].hwid = be32_to_cpup(reg);
+			cpu_capacity[cpu].hwid = be32_to_cpup(reg);
+			cpu++;
 		}
 
 	} else {
@@ -219,12 +221,14 @@ static void __init parse_topology(void)
 		for (cpu = 0; cpu < num_possible_cpus(); cpu++) {
 			cpu_capacity[cpu].capacity = SCHED_POWER_SCALE;
 			cpu_capacity[cpu].hwid = -1;
+			cpu_capacity[cpu].sched_power = SCHED_POWER_SCALE;
 		}
 
 		return;
 
 	}
 
+	/* panto: All these are really questionable... */
 	if (4*max_capacity < (3*(max_capacity + min_capacity)))
 		middle_capacity = (min_capacity + max_capacity)
 				>> (SCHED_POWER_SHIFT+1);
@@ -235,10 +239,19 @@ static void __init parse_topology(void)
 	printk(KERN_INFO "arm-topo: capacity max/min/mid %lu/%lu/%lu\n",
 			max_capacity, min_capacity, middle_capacity);
 
-	for (cpu = 0; cpu < num_possible_cpus(); cpu++)
-		printk(KERN_INFO "arm-topo: cpu%d: capacity=%lu, hwid=%ld\n",
+	for (cpu = 0; cpu < num_possible_cpus(); cpu++) {
+
+		/* scale with maximum capacity at SCHED_POWER_SCALE */
+		cpu_capacity[cpu].sched_power =
+			div_u64((u64)cpu_capacity[cpu].capacity *
+					SCHED_POWER_SCALE, max_capacity);
+
+		printk(KERN_INFO "arm-topo: cpu%d: capacity=%lu hwid=%ld "
+				"sched_power=%u\n",
 			cpu, cpu_capacity[cpu].capacity,
-			(long)cpu_capacity[cpu].hwid);
+			(long)cpu_capacity[cpu].hwid,
+			cpu_capacity[cpu].sched_power);
+	}
 }
 
 /*
@@ -246,7 +259,7 @@ static void __init parse_topology(void)
  * boot. The update of all CPUs is in O(n^2) for heteregeneous system but the
  * function returns directly for SMP system.
  */
-void update_cpu_power(unsigned int cpu, unsigned long hwid)
+static void update_cpu_power(unsigned int cpu, unsigned long hwid)
 {
 	unsigned int idx = 0;
 
@@ -262,7 +275,7 @@ void update_cpu_power(unsigned int cpu, unsigned long hwid)
 	if (idx == num_possible_cpus())
 		return;
 
-	set_power_scale(cpu, cpu_capacity[idx].capacity / middle_capacity);
+	set_power_scale(cpu, cpu_capacity[idx].sched_power);
 
 	printk(KERN_INFO "CPU%u: update cpu_power %lu\n",
 		cpu, arch_scale_freq_power(NULL, cpu));
