@@ -24,9 +24,6 @@
 #include <plat/clock.h>
 #include <plat/omap_device.h>
 #include <linux/clkdev.h>
-#include <linux/input/ti_am335x_tsc.h>
-#include <linux/platform_data/ti_adc.h>
-#include <linux/mfd/ti_am335x_tscadc.h>
 
 #include <linux/capebus/capebus-bone.h>
 

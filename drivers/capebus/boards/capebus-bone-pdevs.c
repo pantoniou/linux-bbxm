@@ -42,7 +42,7 @@
 #include <plat/omap_device.h>
 #include <linux/clkdev.h>
 #include <linux/input/ti_am335x_tsc.h>
-#include <linux/platform_data/ti_adc.h>
+#include <linux/platform_data/ti_am335x_adc.h>
 #include <linux/mfd/ti_am335x_tscadc.h>
 #include <linux/i2c.h>
 #include <linux/of_i2c.h>
@@ -199,7 +199,7 @@ static struct platform_driver da8xx_dt_driver = {
 
 #endif
 
-#if defined(CONFIG_MFD_TI_TSCADC) || defined(CONFIG_MFD_TI_TSCADC_MODULE)
+#if defined(CONFIG_MFD_TI_AM335X_TSCADC) || defined(CONFIG_MFD_TI_AM335X_TSCADC_MODULE)
 
 struct ti_tscadc_priv {
 	struct omap_hwmod *tsc_oh;
@@ -274,6 +274,7 @@ static int __devinit ti_tscadc_dt_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "Could not lookup HWMOD %s\n", "adc_tsc");
 		return -ENODEV;
 	}
+
 	priv->tscadc_pdev = omap_device_build("ti_tscadc", -1, priv->tsc_oh,
 			&priv->tscadc_data, sizeof(priv->tscadc_data),
 			NULL, 0, 0);
@@ -507,7 +508,7 @@ static struct bone_capebus_pdev_driver pdev_drivers[] = {
 		.driver		= &da8xx_dt_driver,
 	},
 #endif
-#if defined(CONFIG_MFD_TI_TSCADC) || defined(CONFIG_MFD_TI_TSCADC_MODULE)
+#if defined(CONFIG_MFD_TI_AM335X_TSCADC) || defined(CONFIG_MFD_TI_AM335X_TSCADC_MODULE)
 	{
 		.driver		= &ti_tscadc_dt_driver,
 	},
