@@ -349,6 +349,13 @@ static int __devinit i2c_dt_probe(struct platform_device *pdev)
 		goto err_node_fail;
 	}
 
+	ret = capebus_of_platform_device_enable(adap_node);
+	if (ret != 0) {
+		dev_info(&pdev->dev, "I2C adapter platform device failed "
+				"to enable\n");
+		goto err_enable_fail;
+	}
+
 	priv->i2c_adapter = of_find_i2c_adapter_by_node(adap_node);
 	if (priv->i2c_adapter == NULL) {
 		dev_err(&pdev->dev, "Failed to find i2c adapter node\n");
@@ -367,6 +374,8 @@ static int __devinit i2c_dt_probe(struct platform_device *pdev)
 	return 0;
 err_adap_fail:
 	of_node_put(adap_node);
+err_enable_fail:
+	/* nothing */
 err_node_fail:
 	/* nothing */
 err_prop_fail:
@@ -426,6 +435,7 @@ static int __devinit spi_dt_probe(struct platform_device *pdev)
 	struct spi_priv *priv = NULL;
 	int ret = -EINVAL;
 	struct device_node *master_node;
+	struct platform_device *master_pdev, *parent_pdev;
 	u32 val;
 
 	if (pdev->dev.of_node == NULL) {
@@ -453,6 +463,12 @@ static int __devinit spi_dt_probe(struct platform_device *pdev)
 		goto err_node_fail;
 	}
 
+	ret = capebus_of_platform_device_enable(master_node);
+	if (ret != 0) {
+		dev_info(&pdev->dev, "SPI platform device failed to enable\n");
+		goto err_enable_fail;
+	}
+
 	priv->master = of_find_spi_master_by_node(master_node);
 	if (priv->master == NULL) {
 		dev_err(&pdev->dev, "Failed to find bus master node\n");
@@ -471,6 +487,8 @@ static int __devinit spi_dt_probe(struct platform_device *pdev)
 	return 0;
 err_master_fail:
 	of_node_put(master_node);
+err_enable_fail:
+	/* nothing */
 err_node_fail:
 	/* nothing */
 err_prop_fail:

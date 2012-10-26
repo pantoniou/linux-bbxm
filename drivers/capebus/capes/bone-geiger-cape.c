@@ -253,7 +253,8 @@ static int bonegeiger_probe(struct cape_dev *dev, const struct cape_device_id *i
 	const struct of_device_id *match;
 	struct bone_geiger_info *info;
 	struct pinctrl *pinctrl;
-	struct device_node *node;
+	struct device_node *node, *pwm_node;
+	phandle phandle;
 	u32 val;
 	int err;
 
@@ -295,6 +296,33 @@ static int bonegeiger_probe(struct cape_dev *dev, const struct cape_device_id *i
 	dev_info(&dev->dev, "Getting PWM device\n");
 
 	node = capebus_of_find_property_node(dev, "version", version, "pwms");
+	if (node == NULL) {
+		dev_err(&dev->dev, "unable to find pwms property\n");
+		err = -ENODEV;
+		goto err_no_pwm;
+	}
+
+	err = of_property_read_u32(node, "pwms", &val);
+	if (err != 0) {
+		dev_err(&dev->dev, "unable to read pwm handle\n");
+		goto err_no_pwm;
+	}
+	phandle = val;
+
+	pwm_node = of_find_node_by_phandle(phandle);
+	if (pwm_node == NULL) {
+		dev_err(&dev->dev, "Failed to pwm node\n");
+		err = -EINVAL;
+		goto err_no_pwm;
+	}
+
+	err = capebus_of_platform_device_enable(pwm_node);
+	of_node_put(pwm_node);
+	if (err != 0) {
+		dev_err(&dev->dev, "Failed to pwm node\n");
+		goto err_no_pwm;
+	}
+
 	info->pwm_dev = of_pwm_request(node, NULL);
 	of_node_put(node);
 	if (IS_ERR(info->pwm_dev)) {

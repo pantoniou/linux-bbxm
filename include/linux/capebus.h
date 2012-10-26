@@ -291,4 +291,7 @@ static inline int capebus_of_property_read_u64(struct cape_dev *dev,
 	return ret;
 }
 
+int capebus_of_device_node_enable(struct device_node *node);
+int capebus_of_platform_device_enable(struct device_node *node);
+
 #endif

@@ -559,3 +559,70 @@ const void *capebus_of_get_property(struct cape_dev *dev,
 	return pp ? pp->value : NULL;
 }
 EXPORT_SYMBOL_GPL(capebus_of_get_property);
+
+/* node exists, but it's not available? make it so */
+int capebus_of_device_node_enable(struct device_node *node)
+{
+	struct property *prop;
+	int ret;
+
+	prop = kzalloc(sizeof(*prop), GFP_KERNEL);
+	if (prop == NULL)
+		goto err_no_prop_mem;
+
+	prop->name = kstrdup("status", GFP_KERNEL);
+	if (prop->name == NULL)
+		goto err_no_name_mem;
+
+	prop->value = kstrdup("okay", GFP_KERNEL);
+	if (prop->value == NULL)
+		goto err_no_value_mem;
+
+	prop->length = strlen(prop->value) + 1;
+	set_bit(OF_DYNAMIC, &prop->_flags);
+
+	ret = prom_update_property(node, prop);
+	if (ret != 0)
+		goto err_update_failed;
+
+	return 0;
+
+err_update_failed:
+	kfree(prop->value);
+err_no_value_mem:
+	kfree(prop->name);
+err_no_name_mem:
+	kfree(prop);
+err_no_prop_mem:
+	return -ENOMEM;
+}
+EXPORT_SYMBOL_GPL(capebus_of_device_node_enable);
+
+/* Make sure this node is activated (even if it was disabled) */
+int capebus_of_platform_device_enable(struct device_node *node)
+{
+	struct platform_device *pdev, *ppdev;
+	int ret;
+
+	if (of_device_is_available(node))
+		return 0;
+
+	ret = capebus_of_device_node_enable(node);
+	if (ret != 0)
+		return ret;
+
+	/* now we need to find the parent of the node */
+	ppdev = of_find_device_by_node(node->parent);
+
+	pdev = of_platform_device_create(node, NULL,
+			ppdev ? &ppdev->dev : NULL);
+	if (IS_ERR_OR_NULL(pdev)) {
+		ret = pdev ? PTR_ERR(pdev) : -ENODEV;
+		return ret;
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(capebus_of_platform_device_enable);
+
+
