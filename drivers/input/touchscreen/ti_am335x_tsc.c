@@ -26,6 +26,7 @@
 #include <linux/io.h>
 #include <linux/input/ti_am335x_tsc.h>
 #include <linux/delay.h>
+#include <linux/regmap.h>
 
 #include <linux/mfd/ti_am335x_tscadc.h>
 
@@ -64,13 +65,17 @@ struct titsc {
 
 static unsigned int titsc_readl(struct titsc *ts, unsigned int reg)
 {
-	return readl(ts->mfd_tscadc->tscadc_base + reg);
+	unsigned int val;
+
+	val = (unsigned int)-1;
+	regmap_read(ts->mfd_tscadc->regmap_tscadc, reg, &val);
+	return val;
 }
 
 static void titsc_writel(struct titsc *tsc, unsigned int reg,
 					unsigned int val)
 {
-	writel(val, tsc->mfd_tscadc->tscadc_base + reg);
+	regmap_write(tsc->mfd_tscadc->regmap_tscadc, reg, val);
 }
 
 /*

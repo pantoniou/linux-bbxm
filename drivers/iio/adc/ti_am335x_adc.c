@@ -23,7 +23,9 @@
 #include <linux/iio/iio.h>
 #include <linux/iio/machine.h>
 #include <linux/iio/driver.h>
+#include <linux/regmap.h>
 
+#include <linux/io.h>
 #include <linux/mfd/ti_am335x_tscadc.h>
 #include <linux/platform_data/ti_am335x_adc.h>
 
@@ -36,13 +38,17 @@ struct tiadc_device {
 
 static unsigned int tiadc_readl(struct tiadc_device *adc, unsigned int reg)
 {
-	return readl(adc->mfd_tscadc->tscadc_base + reg);
+	unsigned int val;
+
+	val = (unsigned int)-1;
+	regmap_read(adc->mfd_tscadc->regmap_tscadc, reg, &val);
+	return val;
 }
 
 static void tiadc_writel(struct tiadc_device *adc, unsigned int reg,
 					unsigned int val)
 {
-	writel(val, adc->mfd_tscadc->tscadc_base + reg);
+	regmap_write(adc->mfd_tscadc->regmap_tscadc, reg, val);
 }
 
 static void tiadc_step_config(struct tiadc_device *adc_dev)
