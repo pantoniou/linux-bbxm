@@ -218,6 +218,7 @@ struct bus_type capebus_bus_type = {
 	.bus_attrs	= capebus_bus_attrs,
 	.pm		= NULL,	/* No PM for now */
 };
+EXPORT_SYMBOL(capebus_bus_type);
 
 /**
  * __capebus_register_driver - register a new capebus driver
@@ -241,6 +242,7 @@ int __capebus_register_driver(struct cape_driver *drv, struct module *owner,
 	/* register with core */
 	return driver_register(&drv->driver);
 }
+EXPORT_SYMBOL(__capebus_register_driver);
 
 /**
  * capebus_unregister_driver - unregister a capebus driver
@@ -258,6 +260,7 @@ capebus_unregister_driver(struct cape_driver *drv)
 	/* TODO: not really working properly */
 	driver_unregister(&drv->driver);
 }
+EXPORT_SYMBOL(capebus_unregister_driver);
 
 /**
  * capebus_bus_match - Tell if a cape device structure has a matching
@@ -301,6 +304,7 @@ struct cape_dev *capebus_dev_get(struct cape_dev *dev)
 		get_device(&dev->dev);
 	return dev;
 }
+EXPORT_SYMBOL(capebus_dev_get);
 
 /**
  * capebus_dev_put - release a use of the capebus device structure
@@ -314,6 +318,7 @@ void capebus_dev_put(struct cape_dev *dev)
 	if (dev)
 		put_device(&dev->dev);
 }
+EXPORT_SYMBOL(capebus_dev_put);
 
 static int __init capebus_driver_init(void)
 {
@@ -554,9 +559,3 @@ const void *capebus_of_get_property(struct cape_dev *dev,
 	return pp ? pp->value : NULL;
 }
 EXPORT_SYMBOL_GPL(capebus_of_get_property);
-
-EXPORT_SYMBOL(__capebus_register_driver);
-EXPORT_SYMBOL(capebus_unregister_driver);
-EXPORT_SYMBOL(capebus_bus_type);
-EXPORT_SYMBOL(capebus_dev_get);
-EXPORT_SYMBOL(capebus_dev_put);
