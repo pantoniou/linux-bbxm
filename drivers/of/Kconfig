@@ -38,7 +38,9 @@ config OF_PROMTREE
 # Hardly any platforms need this.  It is safe to select, but only do so if you
 # need it.
 config OF_DYNAMIC
-	bool
+	bool "Enable dynamic update of Device Tree"
+	help
+	  Enable this to display changes in the device tree at runtime.
 
 config OF_ADDRESS
 	def_bool y
