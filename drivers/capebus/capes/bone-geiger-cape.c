@@ -250,7 +250,6 @@ static int bonegeiger_probe(struct cape_dev *dev, const struct cape_device_id *i
 	char versionbuf[5];
 	const char *board_name;
 	const char *version;
-	const struct of_device_id *match;
 	struct bone_geiger_info *info;
 	struct pinctrl *pinctrl;
 	struct device_node *node, *pwm_node;
@@ -273,9 +272,6 @@ static int bonegeiger_probe(struct cape_dev *dev, const struct cape_device_id *i
 	if (board_name == NULL || version == NULL)
 		return -ENODEV;
 
-	dev_info(&dev->dev, "%s: V=%s initialized - '%s'\n", board_name,
-			version, match->compatible);
-
 	dev->drv_priv = devm_kzalloc(&dev->dev, sizeof(*info), GFP_KERNEL);
 	if (dev->drv_priv == NULL) {
 		dev_err(&dev->dev, "Failed to allocate info\n");
@@ -284,16 +280,10 @@ static int bonegeiger_probe(struct cape_dev *dev, const struct cape_device_id *i
 	}
 	info = dev->drv_priv;
 
-	dev_info(&dev->dev, "LED pdev created OK\n");
-
-	dev_info(&dev->dev, "Configuring PWM pins\n");
-
 	pinctrl = devm_pinctrl_get_select_default(&dev->dev);
 	if (IS_ERR(pinctrl))
 		dev_warn(&dev->dev,
 			"pins are not configured from the driver\n");
-
-	dev_info(&dev->dev, "Getting PWM device\n");
 
 	node = capebus_of_find_property_node(dev, "version", version, "pwms");
 	if (node == NULL) {
@@ -331,8 +321,6 @@ static int bonegeiger_probe(struct cape_dev *dev, const struct cape_device_id *i
 		goto err_no_pwm;
 	}
 
-	dev_info(&dev->dev, "Got PWM OK\n");
-
 	if (capebus_of_property_read_u32(dev,
 				"version", version,
 				"pwm-frequency", &val) != 0) {
@@ -353,10 +341,6 @@ static int bonegeiger_probe(struct cape_dev *dev, const struct cape_device_id *i
 	}
 	info->pwm_duty_cycle = val;
 
-	dev_info(&dev->dev, "PWM configuration: Freq = %dHz, "
-			"duty cycle = %d%%\n",
-			info->pwm_frequency, info->pwm_duty_cycle);
-
 	node = capebus_of_find_property_node(dev, "gpios", version, "pwms");
 	info->event_gpio = of_get_gpio_flags(node, 0, NULL);
 	of_node_put(node);
@@ -366,8 +350,6 @@ static int bonegeiger_probe(struct cape_dev *dev, const struct cape_device_id *i
 		goto err_no_gpio;
 	}
 
-	dev_info(&dev->dev, "Got event GPIO %d\n", info->event_gpio);
-
 	err = gpio_request_one(info->event_gpio,
 			GPIOF_DIR_IN | GPIOF_EXPORT,
 			"bone-geiger-cape-event");
@@ -375,8 +357,6 @@ static int bonegeiger_probe(struct cape_dev *dev, const struct cape_device_id *i
 		dev_err(&dev->dev, "failed to request event GPIO\n");
 		goto err_no_gpio;
 	}
-
-	dev_info(&dev->dev, "Requested GPIO %d\n", info->event_gpio);
 
 	atomic64_set(&info->counter, 0);
 
@@ -457,7 +437,7 @@ static int bonegeiger_probe(struct cape_dev *dev, const struct cape_device_id *i
 		goto err_no_vsense;
 	}
 
-	dev_info(&dev->dev, "Initialization complete\n");
+	dev_info(&dev->dev, "ready\n");
 
 	err = bonegeiger_start(dev);
 	if (err != 0) {
