@@ -338,7 +338,7 @@ capebus_of_match_device(struct cape_dev *cdev,
 	struct cape_bus *bus = cdev->bus;
 	struct device *dev = &cdev->dev;
 	struct device_node *pnode = cape_bus_to_parent_of_node(bus);
-	struct device_node *node, *node2;
+	struct device_node *node;
 	const struct of_device_id *match;
 	const char* cp;
 	int cplen, l;
@@ -348,8 +348,7 @@ capebus_of_match_device(struct cape_dev *cdev,
 			pnode->name, pnode->type, pnode->full_name);
 
 	match = NULL;
-	node2 = NULL;
-	while ((node = of_get_next_child(pnode, node2)) != NULL) {
+	for_each_child_of_node(pnode, node) {
 
 		dev->of_node = node;
 		match = of_match_device(dev->driver->of_match_table, dev);
@@ -374,7 +373,6 @@ capebus_of_match_device(struct cape_dev *cdev,
 next_node:
 		match = NULL;
 		dev->of_node = NULL;
-		node2 = node;
 	}
 
 	if (match == NULL) {
@@ -398,7 +396,7 @@ capebus_of_compatible_device_property_match(struct cape_dev *dev,
 		const char *prop, const char *prop_value)
 {
 	const struct of_device_id *match;
-	struct device_node *node, *node2, *node3, *node4;
+	struct device_node *node, *cnode;
 	const char* cp;
 	int cplen, l;
 
@@ -406,9 +404,7 @@ capebus_of_compatible_device_property_match(struct cape_dev *dev,
 		goto try_non_property;
 
 	/* at first try secondary match */
-	for (node2 = NULL;
-		(node = of_get_next_child(dev->dev.of_node, node2)) != NULL;
-		node2 = node) {
+	for_each_child_of_node(dev->dev.of_node, node) {
 
 		cp = of_get_property(node, prop, &cplen);
 		if (cp == NULL)
@@ -428,23 +424,19 @@ capebus_of_compatible_device_property_match(struct cape_dev *dev,
 			continue;
 
 		/* now iterate in the children nodes */
-		for (node4 = NULL;
-			(node3 = of_get_next_child(node, node4)) != NULL;
-			node4 = node3) {
+		for_each_child_of_node(node, cnode) {
 
-			match = of_match_node(matches, node3);
+			match = of_match_node(matches, cnode);
 			if (match) {
 				/* release reference to parent, keep this one */
 				of_node_put(node);
-				return node3;
+				return cnode;
 			}
 		}
 	}
 
 try_non_property:
-	for (node2 = NULL;
-		(node = of_get_next_child(dev->dev.of_node, node2)) != NULL;
-		node2 = node) {
+	for_each_child_of_node(dev->dev.of_node, node) {
 
 		match = of_match_node(matches, node);
 		if (match)
