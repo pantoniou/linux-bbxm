@@ -471,7 +471,7 @@ capebus_of_platform_compatible_device_create(struct cape_dev *dev,
 
 	pdev = of_platform_device_create(node, pdev_name, dev->bus->dev.parent);
 
-	/* release the refence to the node */
+	/* release the reference to the node */
 	of_node_put(node);
 	node = NULL;
 
