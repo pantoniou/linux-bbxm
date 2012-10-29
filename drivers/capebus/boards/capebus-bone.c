@@ -35,6 +35,7 @@
 #include <linux/pm_runtime.h>
 #include <linux/pinctrl/consumer.h>
 #include <linux/err.h>
+#include <linux/ctype.h>
 
 #include <linux/capebus.h>
 #include <linux/capebus/capebus-bone.h>
@@ -494,6 +495,155 @@ static struct cape_bus_ops bone_capebus_ops = {
 	.dev_registered		= bone_capebus_dev_registered,
 };
 
+static ssize_t slots_show(struct device *dev, struct device_attribute *attr,
+		char *buf)
+{
+	struct platform_device *pdev = to_platform_device(dev);
+	struct bone_capebus_bus	*bus = platform_get_drvdata(pdev);
+	struct bone_capebus_slot *slot;
+	ssize_t len, sz;
+	int i;
+
+	sz = 0;
+
+	for (i = 0; i < bus->slots_nr; i++) {
+		slot = &bus->slots[i];
+
+		len = sprintf(buf, "%02x:%c%c%c%c %s\n",
+				(int)slot->eeprom_addr & 0x7f,
+				slot->eeprom_probed     ? 'P' : '-',
+				slot->eeprom_failed     ? 'F' : '-',
+				slot->eeprom_override   ? 'O' : '-',
+				(slot->cape_slot.dev && slot->cape_slot.dev->added) ? 'A' : '-',
+				slot->text_id);
+
+		buf += len;
+		sz += len;
+	}
+	return sz;
+}
+
+static ssize_t slots_store(struct device *dev, struct device_attribute *attr,
+		 const char *buf, size_t count)
+{
+	struct platform_device *pdev = to_platform_device(dev);
+	struct bone_capebus_bus	*bus = platform_get_drvdata(pdev);
+	int slotno, err, i, len;
+	char *s, *board_name, *version, *p;
+	const struct bone_capebus_eeprom_field *ee_field, *eebrd, *eevrs;
+	struct bone_capebus_slot *slot;
+
+	eebrd = &eeprom_fields[BONE_CAPEBUS_BOARD_NAME];
+	eevrs = &eeprom_fields[BONE_CAPEBUS_VERSION];
+
+	slotno = simple_strtoul(buf, &s, 10);
+	if (slotno < 0 || slotno >= bus->slots_nr)
+		return -EINVAL;
+	slot = &bus->slots[slotno];
+	if (slot->eeprom_override || (slot->cape_slot.dev && slot->cape_slot.dev->added))
+		return -EINVAL;
+
+	board_name = kzalloc(eebrd->size + 1 + eevrs->size + 1, GFP_KERNEL);
+	if (board_name == NULL)
+		return -ENOMEM;
+	version = board_name + eebrd->size + 1;
+
+	s = strchr(s, ':');
+	if (s == NULL) {
+		kfree(board_name);
+		return -EINVAL;
+	}
+	s++;
+	p = strchr(s, ':');
+	if (p == NULL) {
+		len = strlen(s);
+		strncpy(board_name, s, eebrd->size);
+		strcpy(version, "00A0");
+	} else {
+		len = p - s;
+		if (len > eebrd->size)
+			len = p - s;
+		memcpy(board_name, s, len);
+		board_name[len] = '\0';
+		strncpy(version, p + 1, eevrs->size);
+	}
+	board_name[eebrd->size] = '\0';
+	version[eevrs->size]  = '\0';
+
+	/* strip trailing spaces, dots & newlines */
+	s = board_name + strlen(board_name);
+	while (s > board_name &&
+			(isspace(s[-1]) || s[-1] == '\n' || s[-1] == '.'))
+		*--s = '\0';
+
+	printk(KERN_INFO "Override for slot #%d, board-name '%s', version '%s'\n",
+			slotno, board_name, version);
+
+	slot->eeprom_override = 1;
+	slot->eeprom_failed = 0;
+	slot->eeprom_probed = 0;
+
+	/* zero out signature */
+	memset(slot->eeprom_signature, 0,
+			sizeof(slot->eeprom_signature));
+
+	/* create an eeprom field */
+	for (i = 0; i < ARRAY_SIZE(eeprom_fields); i++) {
+
+		ee_field = &eeprom_fields[i];
+
+		/* point to the entry */
+		p = slot->eeprom_signature + ee_field->start;
+
+		/* if no such property, assign default */
+		if (i != BONE_CAPEBUS_BOARD_NAME) {
+
+			if (ee_field->override)
+				memcpy(p, ee_field->override,
+						ee_field->size);
+			else
+				memset(p, 0, ee_field->size);
+
+			continue;
+		}
+
+		/* copy it to the eeprom signature buf */
+		len = strlen(board_name);
+		if (len > ee_field->size)
+			len = ee_field->size;
+
+		/* copy and zero out rest */
+		memcpy(p, board_name, len);
+		if (len < ee_field->size)
+			memset(p + len, 0, ee_field->size - len);
+	}
+
+	printk(KERN_INFO "calling cape_bus_scan_one_slot\n");
+	err = cape_bus_scan_one_slot(&bus->cape_bus, &slot->cape_slot);
+
+	printk(KERN_INFO "cape_bus_scan_one_slot returned %d\n", err);
+
+	/* failed to scan... */
+	if (err != 0)
+		slot->eeprom_override = 0;
+
+	kfree(board_name);
+
+	return strlen(buf);
+}
+
+static DEVICE_ATTR(slots, 0644, slots_show, slots_store);
+
+static int bone_capebus_bus_sysfs_register(struct bone_capebus_bus *bus)
+{
+	return device_create_file(bus->dev, &dev_attr_slots);
+}
+
+static void bone_capebus_bus_sysfs_unregister(struct bone_capebus_bus *bus)
+{
+	device_remove_file(bus->dev, &dev_attr_slots);
+}
+
 static int __devinit
 bone_capebus_probe(struct platform_device *pdev)
 {
@@ -698,6 +848,8 @@ bone_capebus_probe(struct platform_device *pdev)
 
 	pm_runtime_put(bus->dev);
 
+	bone_capebus_bus_sysfs_register(bus);
+
 	dev_info(&pdev->dev, "initialized OK.\n");
 
 	return 0;
@@ -712,10 +864,11 @@ err_no_pdevs:
 
 static int __devexit bone_capebus_remove(struct platform_device *pdev)
 {
-	struct bone_capebus_bus	*dev = platform_get_drvdata(pdev);
+	struct bone_capebus_bus	*bus = platform_get_drvdata(pdev);
 	int ret;
 
-	(void)dev;
+	bone_capebus_bus_sysfs_unregister(bus);
+	bone_capebus_unregister_pdev_adapters(bus);
 
 	platform_set_drvdata(pdev, NULL);
 
