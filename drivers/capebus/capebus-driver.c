@@ -131,6 +131,10 @@ __capebus_device_probe(struct cape_driver *drv, struct cape_dev *cape_dev)
 				drv->remove(cape_dev);
 				pm_runtime_put_noidle(&cape_dev->dev);
 			}
+
+			pm_runtime_disable(&cape_dev->dev);
+			pm_runtime_set_suspended(&cape_dev->dev);
+			pm_runtime_put_noidle(&cape_dev->dev);
 		}
 	}
 
