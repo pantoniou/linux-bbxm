@@ -59,13 +59,42 @@ static const struct cape_device_id *capebus_match_device(
 	return bus->ops->get_dev_id(slot);
 }
 
-static int capebus_call_probe(struct cape_driver *drv, struct cape_dev *dev,
-			  const struct cape_device_id *id)
+/**
+ * capebus_device_probe - check if a driver wants to claim a
+ *                          specific cape device
+ * @dev: cape device being probed
+ *
+ * returns 0 on success, else error.
+ * side-effect: cape_dev->driver is set to drv when drv claims cape_dev.
+ */
+static int capebus_device_probe(struct device *dev)
 {
-	struct device *parent = dev->dev.parent;
-	int rc;
+	const struct cape_device_id *id;
+	int error = 0;
+	struct cape_driver *drv;
+	struct cape_dev *cape_dev;
+	struct device *parent;
 
-	/* The parent bridge must be in active state when probing */
+	drv = to_cape_driver(dev->driver);
+	cape_dev = to_cape_dev(dev);
+	cape_dev = capebus_dev_get(cape_dev);
+
+	/* sanity checks */
+	if (cape_dev == NULL ||
+		cape_dev->bus == NULL || cape_dev->bus->ops == NULL ||
+		cape_dev->driver != NULL || drv->probe == NULL) {
+		error = -EINVAL;
+		goto err_no_sanity;
+	}
+
+	id = capebus_match_device(drv, cape_dev);
+	if (!id) {
+		error = -ENODEV;
+		goto err_no_match;
+	}
+
+	/* The parent device must be in active state when probing */
+	parent = cape_dev->dev.parent;
 	if (parent)
 		pm_runtime_get_sync(parent);
 
@@ -75,88 +104,47 @@ static int capebus_call_probe(struct cape_driver *drv, struct cape_dev *dev,
 	 * it should call pm_runtime_put_noidle() in its probe routine and
 	 * pm_runtime_get_noresume() in its remove routine.
 	 */
-	pm_runtime_get_noresume(&dev->dev);
-	pm_runtime_set_active(&dev->dev);
-	pm_runtime_enable(&dev->dev);
+	pm_runtime_get_noresume(&cape_dev->dev);
+	pm_runtime_set_active(&cape_dev->dev);
+	pm_runtime_enable(&cape_dev->dev);
 
-	rc = drv->probe(dev, id);
-	if (rc) {
-		pm_runtime_disable(&dev->dev);
-		pm_runtime_set_suspended(&dev->dev);
-		pm_runtime_put_noidle(&dev->dev);
-	}
+	/* call the driver's probe method */
+	error = drv->probe(cape_dev, id);
 
+	/* release the parent no matter what */
 	if (parent)
 		pm_runtime_put(parent);
 
-	return rc;
-}
+	if (error != 0)
+		goto err_probe_fail;
 
-/**
- * __capebus_device_probe - check if a driver wants to claim a
- *                          specific cape device
- * @drv: driver to call to check if it wants the cape device
- * @cape_dev: cape device being probed
- *
- * returns 0 on success, else error.
- * side-effect: cape_dev->driver is set to drv when drv claims cape_dev.
- */
-static int
-__capebus_device_probe(struct cape_driver *drv, struct cape_dev *cape_dev)
-{
-	const struct cape_device_id *id;
-	int error = 0;
-
-	/* sanity checks */
-	if (cape_dev->bus == NULL || cape_dev->bus->ops == NULL ||
-	    cape_dev->driver != NULL || drv->probe == NULL)
-		return -ENODEV;
-
-	id = capebus_match_device(drv, cape_dev);
-	if (!id)
-		return -ENODEV;
-
-	error = capebus_call_probe(drv, cape_dev, id);
-	if (error < 0)
-		return -ENODEV;
-
-	cape_dev->driver = drv;
-
-	/* call the probed bus method (if added prev.) */
-	if (cape_dev->bus->ops->dev_probed) {
+	/* call the probed bus method */
+	if (cape_dev->bus->ops->dev_probed != NULL) {
 		error = cape_dev->bus->ops->dev_probed(cape_dev);
-		if (error != 0) {
-			if (drv->remove) {
-				pm_runtime_get_sync(&cape_dev->dev);
-				drv->remove(cape_dev);
-				pm_runtime_put_noidle(&cape_dev->dev);
-			}
-
-			pm_runtime_disable(&cape_dev->dev);
-			pm_runtime_set_suspended(&cape_dev->dev);
-			pm_runtime_put_noidle(&cape_dev->dev);
-		}
+		if (error != 0)
+			goto err_dev_probed_fail;
 	}
 
-	if (error >= 0)
-		cape_dev->added = 1;
+	/* all is fine... */
+	cape_dev->driver = drv;
+	cape_dev->added = 1;
 
-	return error;
-}
+	return 0;
 
-static int capebus_device_probe(struct device *dev)
-{
-	int error = 0;
-	struct cape_driver *drv;
-	struct cape_dev *cape_dev;
-
-	drv = to_cape_driver(dev->driver);
-	cape_dev = to_cape_dev(dev);
-	capebus_dev_get(cape_dev);
-	error = __capebus_device_probe(drv, cape_dev);
-	if (error)
-		capebus_dev_put(cape_dev);
-
+err_dev_probed_fail:
+	if (drv->remove) {
+		pm_runtime_get_sync(&cape_dev->dev);
+		drv->remove(cape_dev);
+		pm_runtime_put_noidle(&cape_dev->dev);
+	}
+err_probe_fail:
+	pm_runtime_disable(&cape_dev->dev);
+	pm_runtime_set_suspended(&cape_dev->dev);
+	pm_runtime_put_noidle(&cape_dev->dev);
+err_no_match:
+	/* nothing */
+err_no_sanity:
+	capebus_dev_put(cape_dev);
 	return error;
 }
 
@@ -186,8 +174,6 @@ static int capebus_device_remove(struct device *dev)
 	pm_runtime_disable(dev);
 	pm_runtime_set_suspended(dev);
 	pm_runtime_put_noidle(dev);
-
-	/* TODO PM? */
 
 	capebus_dev_put(cape_dev);
 	return 0;
