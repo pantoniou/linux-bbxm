@@ -56,7 +56,7 @@ static const struct cape_device_id *capebus_match_device(
 	BUG_ON(bus->ops == NULL);
 	BUG_ON(bus->ops->get_dev_id == NULL);
 
-	return (*bus->ops->get_dev_id)(slot);
+	return bus->ops->get_dev_id(slot);
 }
 
 static int capebus_call_probe(struct cape_driver *drv, struct cape_dev *dev,
@@ -124,7 +124,7 @@ __capebus_device_probe(struct cape_driver *drv, struct cape_dev *cape_dev)
 
 	/* call the probed bus method (if added prev.) */
 	if (cape_dev->bus->ops->dev_probed) {
-		error = (*cape_dev->bus->ops->dev_probed)(cape_dev);
+		error = cape_dev->bus->ops->dev_probed(cape_dev);
 		if (error != 0) {
 			if (drv->remove) {
 				pm_runtime_get_sync(&cape_dev->dev);
@@ -167,7 +167,7 @@ static int capebus_device_remove(struct device *dev)
 			BUG_ON(cape_dev->bus == NULL);
 			BUG_ON(cape_dev->bus->ops == NULL);
 			if (cape_dev->bus->ops->dev_removed)
-				(*cape_dev->bus->ops->dev_removed)(cape_dev);
+				cape_dev->bus->ops->dev_removed(cape_dev);
 			cape_dev->added = 0;
 		}
 		if (drv->remove) {

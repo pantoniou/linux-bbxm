@@ -206,7 +206,7 @@ static struct cape_dev *cape_bus_scan_slot(struct cape_slot *slot)
 		return ERR_PTR(-EINVAL);
 
 	/* get the ID (if a device exists) */
-	id = (*bus->ops->get_dev_id)(slot);
+	id = bus->ops->get_dev_id(slot);
 	if (id == NULL)
 		return ERR_PTR(-ENODEV);
 
@@ -221,7 +221,7 @@ static struct cape_dev *cape_bus_scan_slot(struct cape_slot *slot)
 	dev->bus = bus;
 	dev->slot = slot;
 	dev->id = id;
-	dev->text_id = (*bus->ops->get_text_dev_id)(slot);
+	dev->text_id = bus->ops->get_text_dev_id(slot);
 
 	/* capebus_set_of_node(dev); TODO */
 
@@ -285,7 +285,7 @@ int cape_bus_register_slot(struct cape_bus *bus, struct cape_slot *slot,
 		list_add_tail(&dev->bus_list, &bus->devices);
 
 		if (dev->bus->ops->dev_registered)
-			(*dev->bus->ops->dev_registered)(dev);
+			dev->bus->ops->dev_registered(dev);
 
 	}
 
