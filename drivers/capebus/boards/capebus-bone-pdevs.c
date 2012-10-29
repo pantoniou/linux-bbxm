@@ -435,7 +435,6 @@ static int __devinit spi_dt_probe(struct platform_device *pdev)
 	struct spi_priv *priv = NULL;
 	int ret = -EINVAL;
 	struct device_node *master_node;
-	struct platform_device *master_pdev, *parent_pdev;
 	u32 val;
 
 	if (pdev->dev.of_node == NULL) {
