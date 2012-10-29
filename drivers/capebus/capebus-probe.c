@@ -46,8 +46,6 @@ static void release_capebus_dev(struct device *dev)
 {
 	struct cape_dev *cape_dev = to_cape_dev(dev);
 
-	printk(KERN_INFO "Releasing cape device %p\n", cape_dev);
-
 	kfree(cape_dev);
 }
 
@@ -122,7 +120,7 @@ int cape_bus_register(struct cape_bus *bus, const char *name, int busno,
 		if (parent != NULL)
 			dev_err(parent, "capebus %s:%d in use\n", name, busno);
 		else
-			printk(KERN_ERR "capebus %s:%d in use\n", name, busno);
+			pr_err("capebus %s:%d in use\n", name, busno);
 		r = -EBUSY;
 		goto err_unlock;
 	}
@@ -139,7 +137,7 @@ int cape_bus_register(struct cape_bus *bus, const char *name, int busno,
 			dev_err(parent, "capebus #%d failed to register dev\n",
 					bus->busno);
 		else
-			printk(KERN_ERR "capebus #%d failed to register dev\n",
+			pr_err("capebus #%d failed to register dev\n",
 					bus->busno);
 		goto err_unlock;
 	}
