@@ -199,25 +199,26 @@ static struct cape_dev *cape_bus_scan_slot(struct cape_slot *slot)
 	struct cape_dev *dev;
 	const struct cape_device_id *id;
 
-	/* slot must not have a device yet */
-	if (slot->dev != NULL)
-		return ERR_PTR(-EINVAL);
-
 	/* get the ID (if a device exists) */
 	id = bus->ops->get_dev_id(slot);
 	if (id == NULL)
 		return ERR_PTR(-ENODEV);
 
-	dev = kzalloc(sizeof(*dev), GFP_KERNEL);
+	/* slot must not have a device yet */
+	dev = slot->dev;
 	if (dev == NULL) {
-		dev_info(&bus->dev, "Failed to allocate cape device "
-				"for slot #%d\n", slot->slotno);
-		return ERR_PTR(-ENOMEM);
+		dev = kzalloc(sizeof(*dev), GFP_KERNEL);
+		if (dev == NULL) {
+			dev_info(&bus->dev, "Failed to allocate cape device "
+					"for slot #%d\n", slot->slotno);
+			return ERR_PTR(-ENOMEM);
+		}
+
+		INIT_LIST_HEAD(&dev->bus_list);
+		dev->bus = bus;
+		dev->slot = slot;
 	}
 
-	INIT_LIST_HEAD(&dev->bus_list);
-	dev->bus = bus;
-	dev->slot = slot;
 	dev->id = id;
 	dev->text_id = bus->ops->get_text_dev_id(slot);
 
@@ -226,11 +227,68 @@ static struct cape_dev *cape_bus_scan_slot(struct cape_slot *slot)
 	return dev;
 }
 
+int cape_bus_scan_one_slot(struct cape_bus *bus, struct cape_slot *slot)
+{
+	struct cape_dev *dev;
+	int r;
+
+	mutex_lock(&cape_buses_mutex);
+
+	dev = slot->dev;
+	if (dev == NULL) {
+
+		dev = cape_bus_scan_slot(slot);
+		if (IS_ERR(dev)) {
+			r = PTR_ERR(dev);
+			goto err_out;
+		}
+
+		dev_info(&bus->dev, "Slot #%d id='%s'\n", slot->slotno,
+				dev->text_id ? dev->text_id : "");
+
+		slot->dev = dev;
+
+		dev->dev.release = cape_bus_release_dev;
+		dev->dev.parent = &dev->bus->dev;
+		dev->dev.bus = &capebus_bus_type;
+		dev_set_name(&dev->dev, "%s-%d:%d",
+			     dev->bus->name, dev->bus->busno,
+			     dev->slot->slotno);
+
+		list_add_tail(&dev->bus_list, &bus->devices);
+
+	} else {
+		dev_info(&bus->dev, "Slot #%d id='%s' - rescan\n", slot->slotno,
+				dev->text_id ? dev->text_id : "");
+
+		if (dev->added) {
+			r = -EEXIST;
+			goto err_out;
+		}
+	}
+
+	r = device_register(&dev->dev);
+	if (r != 0) {
+		dev_info(&bus->dev, "Slot #%d id='%s' - "
+				"Failed to register\n",
+				slot->slotno,
+				dev->text_id ? dev->text_id : "");
+		r = 0;
+	} else {
+		if (dev->bus->ops->dev_registered)
+			dev->bus->ops->dev_registered(dev);
+	}
+
+err_out:
+	mutex_unlock(&cape_buses_mutex);
+
+	return r;
+}
+
 int cape_bus_register_slot(struct cape_bus *bus, struct cape_slot *slot,
 		int slotno)
 {
 	struct cape_slot *s2;
-	struct cape_dev *dev;
 	int r;
 
 	r = 0;
@@ -245,8 +303,8 @@ int cape_bus_register_slot(struct cape_bus *bus, struct cape_slot *slot,
 	s2 = cape_slot_find(bus, slotno);
 	if (s2 != NULL) {
 		dev_err(&bus->dev, "Slot #%d already exists\n", slotno);
-		r = -EINVAL;
-		goto err_unlock;
+		mutex_unlock(&cape_buses_mutex);
+		return -EINVAL;
 	}
 
 	INIT_LIST_HEAD(&slot->node);
@@ -254,41 +312,9 @@ int cape_bus_register_slot(struct cape_bus *bus, struct cape_slot *slot,
 	list_add(&slot->node, &bus->slots);
 	slot->slotno = slotno;
 	slot->dev = NULL;
+	mutex_unlock(&cape_buses_mutex);
 
 	dev_info(&bus->dev, "Slot #%d registered\n", slot->slotno);
 
-	dev = cape_bus_scan_slot(slot);
-	if (!IS_ERR(dev)) {
-		dev_info(&bus->dev, "Slot #%d id='%s'\n", slot->slotno,
-				dev->text_id ? dev->text_id : "");
-
-		slot->dev = dev;
-
-		dev->dev.release = cape_bus_release_dev;
-		dev->dev.parent = &dev->bus->dev;
-		dev->dev.bus = &capebus_bus_type;
-		dev_set_name(&dev->dev, "%s-%d:%d",
-			     dev->bus->name, dev->bus->busno,
-			     dev->slot->slotno);
-
-		r = device_register(&dev->dev);
-		if (r != 0) {
-			dev_info(&bus->dev, "Slot #%d id='%s' - "
-					"Failed to register\n",
-					slot->slotno,
-					dev->text_id ? dev->text_id : "");
-			r = 0;
-		}
-
-		list_add_tail(&dev->bus_list, &bus->devices);
-
-		if (dev->bus->ops->dev_registered)
-			dev->bus->ops->dev_registered(dev);
-
-	}
-
-err_unlock:
-	mutex_unlock(&cape_buses_mutex);
-
-	return r;
+	return cape_bus_scan_one_slot(bus, slot);
 }

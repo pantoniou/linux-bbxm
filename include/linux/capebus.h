@@ -149,6 +149,7 @@ int cape_bus_register(struct cape_bus *bus, const char *name, int busno,
 int cape_bus_register_slot(struct cape_bus *bus,
 		struct cape_slot *slot, int slotno);
 
+int cape_bus_scan_one_slot(struct cape_bus *bus, struct cape_slot *slot);
 int cape_bus_scan(struct cape_bus *bus);
 
 extern struct list_head cape_buses;
