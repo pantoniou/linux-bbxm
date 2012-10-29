@@ -49,6 +49,7 @@ struct bone_capebus_eeprom_field {
 	int		size;
 	unsigned int	ascii : 1;
 	unsigned int	strip_trailing_dots : 1;
+	const char	*override;
 };
 
 static const struct bone_capebus_eeprom_field eeprom_fields[] = {
@@ -57,12 +58,14 @@ static const struct bone_capebus_eeprom_field eeprom_fields[] = {
 		.start		= 0,
 		.size		= 4,
 		.ascii		= 0,
+		.override	= "\xaa\x55\x33\xee",	/* AA 55 33 EE */
 	},
 	[BONE_CAPEBUS_EEPROM_REV] = {
 		.name		= "eeprom-format-revision",
 		.start		= 4,
 		.size		= 2,
 		.ascii		= 1,
+		.override	= "A0",
 	},
 	[BONE_CAPEBUS_BOARD_NAME] = {
 		.name		= "board-name",
@@ -70,12 +73,14 @@ static const struct bone_capebus_eeprom_field eeprom_fields[] = {
 		.size		= 32,
 		.ascii		= 1,
 		.strip_trailing_dots = 1,
+		.override	= "Override Board Name",
 	},
 	[BONE_CAPEBUS_VERSION] = {
 		.name		= "version",
 		.start		= 38,
 		.size		= 4,
 		.ascii		= 1,
+		.override	= "00A0",
 	},
 	[BONE_CAPEBUS_MANUFACTURER] = {
 		.name		= "manufacturer",
@@ -83,71 +88,64 @@ static const struct bone_capebus_eeprom_field eeprom_fields[] = {
 		.size		= 16,
 		.ascii		= 1,
 		.strip_trailing_dots = 1,
+		.override	= "Override Manuf",
 	},
 	[BONE_CAPEBUS_PART_NUMBER] = {
 		.name		= "part-number",
 		.start		= 58,
 		.size		= 16,
 		.ascii		= 1,
+		.override	= "Override Part#",
 	},
 	[BONE_CAPEBUS_NUMBER_OF_PINS] = {
 		.name		= "number-of-pins",
 		.start		= 74,
 		.size		= 2,
 		.ascii		= 0,
+		.override	= NULL,
 	},
 	[BONE_CAPEBUS_SERIAL_NUMBER] = {
 		.name		= "serial-number",
 		.start		= 76,
 		.size		= 12,
 		.ascii		= 1,
+		.override	= "0000000000",
 	},
 	[BONE_CAPEBUS_PIN_USAGE] = {
 		.name		= "pin-usage",
 		.start		= 88,
 		.size		= 140,
 		.ascii		= 0,
+		.override	= NULL,
 	},
 	[BONE_CAPEBUS_VDD_3V3EXP] = {
 		.name		= "vdd-3v3exp",
 		.start		= 228,
 		.size		= 2,
 		.ascii		= 0,
+		.override	= NULL,
 	},
 	[BONE_CAPEBUS_VDD_5V] = {
 		.name		= "vdd-5v",
 		.start		= 230,
 		.size		= 2,
 		.ascii		= 0,
+		.override	= NULL,
 	},
 	[BONE_CAPEBUS_SYS_5V] = {
 		.name		= "sys-5v",
 		.start		= 232,
 		.size		= 2,
 		.ascii		= 0,
+		.override	= NULL,
 	},
 	[BONE_CAPEBUS_DC_SUPPLIED] = {
 		.name		= "dc-supplied",
 		.start		= 234,
 		.size		= 2,
 		.ascii		= 0,
+		.override	= NULL,
 	},
-};
-
-/* template to use when using overrides */
-static const u8 eeprom_signature_template[256] = {
-	/* 00-03 - header */
-	0xaa, 0x55, 0x33, 0xee,
-	/* 04-05 - eeprom format revision - A0 */
-	0x41, 0x30,
-	/* 06-25 - board name (empty) */
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-	/* 26-29 - version - 00A0 */
-	0x30, 0x30, 0xa0, 0x30,
-	/* all the others are zero */
 };
 
 char *bone_capebus_id_get_field(const struct cape_device_id *id,
@@ -600,8 +598,8 @@ bone_capebus_probe(struct platform_device *pdev)
 
 		slot->eeprom_override = 1;
 
-		/* copy template */
-		memcpy(slot->eeprom_signature, eeprom_signature_template,
+		/* zero out signature */
+		memset(slot->eeprom_signature, 0,
 				sizeof(slot->eeprom_signature));
 
 		/* for any matching field assign them */
@@ -609,12 +607,23 @@ bone_capebus_probe(struct platform_device *pdev)
 
 			ee_field = &eeprom_fields[i];
 
+			/* point to the entry */
+			p = slot->eeprom_signature + ee_field->start;
+
+			/* if no such property, assign default */
 			if (of_property_read_string(node, ee_field->name,
-						&str) != 0)
+						&str) != 0) {
+
+				if (ee_field->override)
+					memcpy(p, ee_field->override,
+							ee_field->size);
+				else
+					memset(p, 0, ee_field->size);
+
 				continue;
+			}
 
 			/* copy it to the eeprom signature buf */
-			p = slot->eeprom_signature + ee_field->start;
 			len = strlen(str);
 			if (len > ee_field->size)
 				len = ee_field->size;
