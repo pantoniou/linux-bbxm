@@ -43,7 +43,7 @@ static ssize_t id_show(struct device *dev,
 }
 
 struct device_attribute capebus_dev_attrs[] = {
-	__ATTR(id, 0400, id_show, NULL),
+	__ATTR_RO(id),
 	__ATTR_NULL,
 };
 
