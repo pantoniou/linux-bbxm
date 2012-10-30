@@ -13,5 +13,5 @@
 	vmmc-supply = <&ldo3_reg>;
 	bus-width = <4>;
 	ti,non-removable;
-	status = "disabled";
+	status = "okay";
 };
