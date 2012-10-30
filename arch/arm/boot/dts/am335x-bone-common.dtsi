@@ -244,7 +244,7 @@
 			compatible = "bone-capebus";
 
 			bone_dvi_cape: cape@0 {
-				compatible = "bone-dvi-cape";
+				compatible = "bone-generic-cape";
 			};
 
 			bone_geiger_cape: cape@1 {
@@ -252,7 +252,6 @@
 			};
 
 			bone_lcd3_cape: cape@2 {
-				// compatible = "bone-lcd3-cape";
 				compatible = "bone-generic-cape";
 			};
 

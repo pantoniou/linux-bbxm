@@ -1,10 +1,3 @@
-config CAPEBUS_BONE_DVI
-	tristate "Beaglebone DVI cape driver"
-	depends on CAPEBUS_BONE_CONTROLLER
-	default n
-	help
-	  "Select this to enable a driver for the DVI cape"
-
 config CAPEBUS_BONE_GEIGER
 	tristate "Beaglebone Geiger cape driver"
 	depends on CAPEBUS_BONE_CONTROLLER
@@ -12,16 +5,9 @@ config CAPEBUS_BONE_GEIGER
 	help
 	  "Select this to enable a driver for the geiger cape"
 
-config CAPEBUS_BONE_LCD
-	tristate "Beaglebone LCD[347] cape driver"
-	depends on CAPEBUS_BONE_CONTROLLER
-	default n
-	help
-	  "Select this to enable a driver for the LCD3,LCD4,LCD7 capes"
-
 config CAPEBUS_BONE_GENERIC
 	tristate "Beaglebone Generic cape driver"
 	depends on CAPEBUS_BONE_CONTROLLER
 	default n
 	help
-	  "Select this to enable a generic cape driver; hone your DT skillz!"
+	  "Select this to enable a generic cape driver; LCD/DVI capes etc"
