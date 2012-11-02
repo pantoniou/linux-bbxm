@@ -427,6 +427,7 @@ void __init arch_get_fast_and_slow_cpus(struct cpumask *fast,
 	cpumask_clear(fast);
 	cpumask_clear(slow);
 
+#if defined(CONFIG_HMP_FAST_CPU_MASK) && defined(CONFIG_HMP_SLOW_CPU_MASK)
 	/*
 	 * Use the config options if they are given. This helps testing
 	 * HMP scheduling on systems without a big.LITTLE architecture.
@@ -438,6 +439,7 @@ void __init arch_get_fast_and_slow_cpus(struct cpumask *fast,
 			WARN(1, "Failed to parse HMP slow cpu mask!\n");
 		return;
 	}
+#endif
 
 	/*
 	 * Else, parse device tree for little cores.
