@@ -22,6 +22,7 @@
 #include <linux/irq.h>
 #include <linux/math64.h>
 #include <linux/delay.h>
+#include <linux/sched.h>
 
 #include <asm/smp_plat.h>
 #include <asm/cpu.h>
@@ -80,14 +81,21 @@ int vcpufreq_glue_set_freq(unsigned int cpu, unsigned int new_freq,
 	int ret = 0;
 	uint32_t rate;
 	unsigned int hog_timer_rate;
-	unsigned int freq = vcpufreq_get_maxspeed();
+	unsigned int max_freq = vcpufreq_get_maxspeed(cpu);
 	unsigned int hogtime = vcpufreq_get_hogtime();
+	unsigned int max_cpu_power = vcpufreq_get_max_cpu_power(cpu);
+	unsigned int new_freq_norm;
+	int first_start;
 
-	/* should never happen; checked before */
-	BUG_ON(new_freq == old_freq);
+	/* this can happen on startup */
+	if (new_freq == old_freq)
+		return 0;
+
+	/* now adjust via max_cpu_power */
+	new_freq_norm = (max_cpu_power * new_freq) >> SCHED_POWER_SHIFT;
 
 	/* max freq; stop the timer */
-	if (new_freq == freq) {
+	if (new_freq_norm == max_freq) {
 		pr_debug("#%d: shut down timer\n", cpu);
 		/* no error */
 		ret = 0;
@@ -95,8 +103,10 @@ int vcpufreq_glue_set_freq(unsigned int cpu, unsigned int new_freq,
 
 	}
 	
+	first_start = old_freq == max_freq || old_freq == 0;
+
 	/* timer was stopped, we should start it */
-	if (old_freq == freq) {
+	if (first_start) {
 
 		oti->cpu = cpu;
 
@@ -156,7 +166,7 @@ int vcpufreq_glue_set_freq(unsigned int cpu, unsigned int new_freq,
 	pr_debug("#%d: hog_delta = %u\n", cpu, oti->hog_delta);
 
 	/* rate of hog timer */
-	hog_timer_rate = div_u64((u64)(freq - new_freq) * 1000000, freq * hogtime);
+	hog_timer_rate = div_u64((u64)(max_freq - new_freq_norm) * 1000000, max_freq * hogtime);
 	pr_debug("#%d: hog timer rate = %u\n", cpu, hog_timer_rate);
 
 	rate = (oti->hwtimer_rate + (hog_timer_rate / 2)) / hog_timer_rate;
@@ -165,7 +175,7 @@ int vcpufreq_glue_set_freq(unsigned int cpu, unsigned int new_freq,
 	omap_dm_timer_set_load(oti->dm_timer, 1, 0xFFFFFFFF - rate);
 
 	/* first start */
-	if (old_freq == freq) {
+	if (first_start) {
 		/* enable the interrupt on overflow */
 		omap_dm_timer_set_int_enable(oti->dm_timer,
 				OMAP_TIMER_INT_OVERFLOW);
@@ -195,21 +205,21 @@ omap_stop_timer:
 	}
 
 	/* always return to max speed here */
-	vcpufreq_set_speed(cpu, freq);
+	vcpufreq_set_speed(cpu, max_freq);
 	return ret;
 }
 
-int vcpufreq_glue_init(struct cpufreq_policy *policy, int *freq)
+int vcpufreq_glue_init(struct cpufreq_policy *policy, int *max_freq)
 {
 	struct omap_timer_info __percpu *oti;
 	int ret = 0;
 	struct clk *mpu_clk;
 	const char *mpu_clk_name = NULL;
 
-	BUG_ON(freq == NULL);
+	BUG_ON(max_freq == NULL);
 
-	/* if no freq was provided, probe */
-	if (*freq == 0) {
+	/* if no max_freq was provided, probe */
+	if (*max_freq == 0) {
 		if (cpu_is_omap24xx())
 			mpu_clk_name = "virt_prcm_set";
 		else if (cpu_is_omap34xx())
@@ -231,7 +241,7 @@ int vcpufreq_glue_init(struct cpufreq_policy *policy, int *freq)
 			goto error_out;
 		}
 		/* update freq */
-		*freq = clk_get_rate(mpu_clk) / 1000;
+		*max_freq = clk_get_rate(mpu_clk) / 1000;
 	}
 
 	/* initialize per cpu structure */

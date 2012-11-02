@@ -76,7 +76,7 @@ static void hr_timer_glue_set_freq(void *data)
 	struct hrtimer_info __percpu *hti;
 	int ret = 0;
 	unsigned int hog_timer_rate;
-	unsigned int freq = vcpufreq_get_maxspeed();
+	unsigned int max_freq = vcpufreq_get_maxspeed(info->cpu);
 	unsigned int hogtime = vcpufreq_get_hogtime();
 	u32 div, rem;
 
@@ -88,7 +88,7 @@ static void hr_timer_glue_set_freq(void *data)
 	BUG_ON(info->new_freq == info->old_freq);
 
 	/* max freq; stop the timer */
-	if (info->new_freq == freq) {
+	if (info->new_freq == max_freq) {
 		pr_debug("#%d: shut down timer\n", info->cpu);
 		/* no error */
 		ret = 0;
@@ -97,10 +97,10 @@ static void hr_timer_glue_set_freq(void *data)
 	}
 	
 	/* timer was stopped, we should start it */
-	if (info->old_freq != freq)
+	if (info->old_freq != max_freq)
 		hrtimer_cancel(&hti->hrtimer);
 	
-	hog_timer_rate = div_u64((u64)(freq - info->new_freq) * 1000000, freq * hogtime);
+	hog_timer_rate = div_u64((u64)(max_freq - info->new_freq) * 1000000, max_freq * hogtime);
 	pr_debug("#%d: hog timer rate = %u\n", info->cpu, hog_timer_rate);
 
 	div = div_u64_rem(1000000000 / hog_timer_rate, 1000000000, &rem);
@@ -128,7 +128,7 @@ hr_stop_timer:
 	hrtimer_cancel(&hti->hrtimer);
 
 	/* always return to max speed here */
-	vcpufreq_set_speed(info->cpu, freq);
+	vcpufreq_set_speed(info->cpu, max_freq);
 out:
 	info->ret = ret;
 }
@@ -138,6 +138,10 @@ int vcpufreq_glue_set_freq(unsigned int cpu, unsigned int new_freq,
 {
 	struct vpcufreq_hr_timer_set_freq_info info;
 	int ret;
+
+	/* this can happen on startup */
+	if (new_freq == old_freq)
+		return 0;
 
 	memset(&info, 0, sizeof(info));
 
@@ -177,15 +181,15 @@ static void hr_timer_glue_init_cpu(void *info)
 	pr_info("#%d: %s\n", policy->cpu, __func__);
 }
 
-int vcpufreq_glue_init(struct cpufreq_policy *policy, int *freq)
+int vcpufreq_glue_init(struct cpufreq_policy *policy, int *max_freq)
 {
 	struct hrtimer_info __percpu *hti;
 	int ret = 0;
 
-	BUG_ON(freq == NULL);
+	BUG_ON(max_freq == NULL);
 
-	if (*freq == 0) {
-		*freq = 1000000;	/* simulated 1GHz */
+	if (*max_freq == 0) {
+		*max_freq = 1000000;	/* simulated 1GHz */
 	}
 
 	/* initialize per cpu structure */

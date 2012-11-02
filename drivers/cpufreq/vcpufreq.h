@@ -18,8 +18,10 @@ int vcpufreq_glue_init(struct cpufreq_policy *policy, int *freq);
 int vcpufreq_glue_exit(struct cpufreq_policy *policy);
 
 /* provided by the core */
-unsigned int vcpufreq_get_maxspeed(void);
+unsigned int vcpufreq_get_maxspeed(unsigned int cpu);
 unsigned int vcpufreq_get_hogtime(void);
+unsigned int vcpufreq_get_max_cpu_power(unsigned int cpu);
+
 void vcpufreq_set_speed(unsigned int cpu, unsigned int new_freq);
 
 #endif

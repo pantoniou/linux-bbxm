@@ -29,11 +29,21 @@
 static struct cpufreq_frequency_table *vfreq_table = NULL;
 
 static unsigned int latency = 500;
-static unsigned int splits = 3;
+static unsigned int splits = 2;
 static unsigned int freq = 0;	/* default 1GHz */
 static unsigned int hogtime = 100;
 
-static DEFINE_PER_CPU(unsigned int, curfreq);
+/* HMP fields */
+static struct cpumask fast_mask;
+static unsigned int fast_freq, slow_freq;
+
+struct vcpufreq_data {
+	unsigned int max_freq;
+	unsigned int max_cpu_power;
+	unsigned int cur_freq;
+};
+
+static DEFINE_PER_CPU(struct vcpufreq_data, vcf_data);
 
 static int vcpufreq_verify_speed(struct cpufreq_policy *policy)
 {
@@ -43,22 +53,27 @@ static int vcpufreq_verify_speed(struct cpufreq_policy *policy)
 
 unsigned int vcpufreq_get_speed(unsigned int cpu)
 {
-	return per_cpu(curfreq, cpu);
+	return per_cpu(vcf_data, cpu).cur_freq;
 }
 
 void vcpufreq_set_speed(unsigned int cpu, unsigned int new_freq)
 {
-	per_cpu(curfreq, cpu) = new_freq;
+	per_cpu(vcf_data, cpu).cur_freq = new_freq;
 }
 
-unsigned int vcpufreq_get_maxspeed(void)
+unsigned int vcpufreq_get_maxspeed(unsigned int cpu)
 {
-	return freq;
+	return per_cpu(vcf_data, cpu).max_freq;
 }
 
 unsigned int vcpufreq_get_hogtime(void)
 {
 	return hogtime;
+}
+
+unsigned int vcpufreq_get_max_cpu_power(unsigned int cpu)
+{
+	return per_cpu(vcf_data, cpu).max_cpu_power;
 }
 
 static int vcpufreq_set_target(struct cpufreq_policy *policy,
@@ -109,12 +124,15 @@ static int __cpuinit vcpufreq_driver_init(struct cpufreq_policy *policy)
 {
 	int ret;
 	unsigned int i;
+	unsigned int max_freq;
 
-	ret = vcpufreq_glue_init(policy, &freq); 
+	max_freq = per_cpu(vcf_data, policy->cpu).max_freq;
+	ret = vcpufreq_glue_init(policy, &max_freq);
 	if (ret != 0) {
 		pr_err("%s: vcpufreq_glue_init() failed\n", __func__);
 		goto error_out;
 	}
+	per_cpu(vcf_data, policy->cpu).max_freq = max_freq;
 
 	if (splits < 1) {
 		pr_err("%s: Illegal splits value (%u)\n", __func__, splits);
@@ -133,11 +151,11 @@ static int __cpuinit vcpufreq_driver_init(struct cpufreq_policy *policy)
 	/* 0 .. splits-1 */
 	for (i = 0; i < splits; i++) {
 		vfreq_table[i].index = i;
-		vfreq_table[i].frequency = (freq * (i + 1)) / splits;
+		vfreq_table[i].frequency = (max_freq * (i + 1)) / splits;
 	}
 	/* splits-1 */
 	vfreq_table[i].index = i;
-	vfreq_table[i].frequency = freq;
+	vfreq_table[i].frequency = max_freq;
 
 	/* ends */
 	vfreq_table[i].index = i;
@@ -156,10 +174,14 @@ static int __cpuinit vcpufreq_driver_init(struct cpufreq_policy *policy)
 	policy->max = policy->cpuinfo.max_freq;
 
 	/* always start at the max */
-	per_cpu(curfreq, policy->cpu) = freq;
+	per_cpu(vcf_data, policy->cpu).cur_freq =
+		per_cpu(vcf_data, policy->cpu).max_freq;
 
-	policy->cur = per_cpu(curfreq, policy->cpu);
+	policy->cur = per_cpu(vcf_data, policy->cpu).cur_freq;
 	policy->cpuinfo.transition_latency = latency;
+
+	/* initial */
+	vcpufreq_glue_set_freq(policy->cpu, policy->cur, 0);
 
 	pr_info("#%d: Virtual CPU frequency driver initialized\n", policy->cpu);
 
@@ -197,8 +219,41 @@ static struct cpufreq_driver vcpufreq_driver = {
 	.attr		= vcpufreq_attr,
 };
 
+struct sched_domain;
+extern unsigned long arch_scale_freq_power(struct sched_domain *sd, int cpu);
+
 static int __init vcpufreq_init(void)
 {
+	unsigned int cpu;
+
+#if defined(CONFIG_HMP_FAST_CPU_MASK) && defined(CONFIG_HMP_SLOW_CPU_MASK)
+	fast_freq = simple_strtoul(CONFIG_HMP_FAST_MAX_FREQ, NULL, 10) * 1000;
+	slow_freq = simple_strtoul(CONFIG_HMP_SLOW_MAX_FREQ, NULL, 10) * 1000;
+	cpumask_clear(&fast_mask);
+	if (cpulist_parse(CONFIG_HMP_FAST_CPU_MASK, &fast_mask)) {
+		WARN(1, "Failed to parse HMP fast cpu mask!\n");
+		cpumask_setall(&fast_mask);	/* set all to fast */
+		slow_freq = fast_freq;
+	}
+#else
+	cpumask_set(&fast_mask);
+	fast_freq = slow_freq = freq;
+#endif
+
+	/* collect info about the maximum capacity of the CPUs */
+	for_each_possible_cpu(cpu) {
+		if (cpumask_test_cpu(cpu, &fast_mask))
+			per_cpu(vcf_data, cpu).max_freq = fast_freq;
+		else
+			per_cpu(vcf_data, cpu).max_freq = slow_freq;
+		per_cpu(vcf_data, cpu).max_cpu_power =
+			arch_scale_freq_power(NULL, cpu);
+		printk(KERN_INFO "vcpufreq: cpu%d "
+				"max_cpu_power=%u max_freq=%u\n", cpu,
+				per_cpu(vcf_data, cpu).max_cpu_power,
+				per_cpu(vcf_data, cpu).max_freq);
+	}
+
 	return cpufreq_register_driver(&vcpufreq_driver);
 }
 module_init(vcpufreq_init);
