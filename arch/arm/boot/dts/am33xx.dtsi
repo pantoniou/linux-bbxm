@@ -516,5 +516,23 @@
 				mac-address = [ 00 00 00 00 00 00 ];
 			};
 		};
+
+		fb: fb@4830e000 {
+			compatible = "ti,am33xx-lcdc";
+			reg = <0x4830e000 0x1000>;
+			interrupt-parent = <&intc>;
+			interrupts = <36>;
+			ti,hwmods = "lcdc";
+		};
+
+		/* TODO: where to put this?? */
+		tfp410 {
+			compatible = "tfp410";
+			i2c = <&i2c2>;
+			pinctrl-names = "default";
+			pinctrl-0 = <&bone_dvi_cape_dvi_00A1_pins>;
+			powerdn-gpio = <&gpio2 31 0>;
+		};
+
 	};
 };
