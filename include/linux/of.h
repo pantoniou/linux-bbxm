@@ -113,6 +113,26 @@ static inline void of_node_set_flag(struct device_node *n, unsigned long flag)
 	set_bit(flag, &n->_flags);
 }
 
+static inline void of_node_clear_flag(struct device_node *n, unsigned long flag)
+{
+	clear_bit(flag, &n->_flags);
+}
+
+static inline int of_property_check_flag(struct property *p, unsigned long flag)
+{
+	return test_bit(flag, &p->_flags);
+}
+
+static inline void of_property_set_flag(struct property *p, unsigned long flag)
+{
+	set_bit(flag, &p->_flags);
+}
+
+static inline void of_property_clear_flag(struct property *p, unsigned long flag)
+{
+	clear_bit(flag, &p->_flags);
+}
+
 extern struct device_node *of_find_all_nodes(struct device_node *prev);
 
 /*
@@ -476,5 +496,138 @@ static inline int of_property_read_u32(const struct device_node *np,
 {
 	return of_property_read_u32_array(np, propname, out_value, 1);
 }
+
+/* 
+ * OF dump support
+ */
+struct device;
+
+/* dump utility */
+int of_is_printable_string(const void *data, int len);
+char *__of_dump_prop(struct property *prop);
+
+void __of_dev_dump_tree(struct device *dev, int level,
+		struct device_node *node);
+void of_dev_dump_tree(struct device *dev, struct device_node *node);
+
+void __of_dump_tree(int level, struct device_node *node);
+void of_dump_tree(struct device_node *node);
+
+#ifdef CONFIG_OF_OVERLAY
+
+/*
+ * General utilities
+ */
+
+/* iterators for internal use (do not take references) */
+#define __for_each_property_of_node(dn, pp) \
+	for (pp = (dn)->properties; pp != NULL; pp = pp->next)
+
+#define __for_each_property_of_node_safe(dn, pp, ppn) \
+	for (pp = (dn)->properties, ppn = pp ? pp->next : NULL; \
+			pp != NULL; pp = ppn, ppn = pp->next)
+
+#define __for_each_child_of_node(dn, chld) \
+	for (chld = (dn)->child; chld != NULL; chld = chld->sibling)
+
+#define __for_each_child_of_node_safe(dn, chld, chldn) \
+	for (chld = (dn)->child, chldn = chld ? chld->sibling : NULL; \
+			chld != NULL; chld = chldn, chldn = chld->sibling)
+
+void __of_free_property(struct property *prop);
+
+void __of_free_tree(struct device_node *node);
+
+struct property *__of_copy_property(const struct property *prop, gfp_t flags);
+
+struct device_node *__of_create_empty_node( const char *name,
+		const char *type, const char *full_name,
+		phandle phandle, gfp_t flags);
+
+struct device_node *__of_copy_tree(
+		const struct device_node *src,
+		struct device_node **allp,
+		gfp_t flags);
+
+struct device_node *__of_copy_tree_with_selector(
+		const struct device_node *src,
+		struct device_node **allp,
+		int (*selector)(const struct device_node *node,
+		       	void *sel_value, struct property **propp),
+		void *sel_value,
+		struct device_node *dst,	/* if not NULL, need to add */
+		gfp_t flags);
+
+struct device_node *__of_copy_tree_with_version_selector(
+		const struct device_node *src,
+		struct device_node **allp,
+		char *version,
+		gfp_t flags);
+
+int of_multi_prop_cmp(const struct property *prop, const char *value);
+
+/*
+ * Overlay support
+ */
+
+int __of_apply_tree_overlay(struct device_node *target,
+		const struct device_node *overlay,
+		struct device_node **allp);
+
+void __of_apply_overlay_post(struct device_node *old_node,
+		struct device_node *new_node);
+
+int __of_remove_from_allnodes(struct device_node *node,
+		struct device_node **allnodesp,
+		struct device_node **new_allnodesp);
+
+struct property *__of_find_property(const struct device_node *np,
+				  const char *name,
+				  int *lenp);
+const void *__of_get_property(const struct device_node *np, const char *name,
+			 int *lenp);
+int __of_device_is_available(const struct device_node *device);
+
+/* user API */
+int of_node_replace(struct device_node *old_node,
+		struct device_node *new_node);
+
+struct of_overlay_info {
+	struct device_node *target;	/* in/out */
+	struct device_node *overlay;	/* in */
+	struct device_node *old_target;	/* out */
+};
+
+int of_overlay(int count, struct of_overlay_info *ovinfo_tab);
+
+int of_fill_overlay_info(struct device_node *info_node,
+		struct of_overlay_info *ovinfo);
+int of_build_overlay_info(struct device_node *tree,
+		int *cntp, struct of_overlay_info **ovinfop);
+int of_free_overlay_info(int cnt, struct of_overlay_info *ovinfo);
+
+/* resolver */
+
+/* illegal phandle value (set when unresolved) */
+#define OF_PHANDLE_ILLEGAL	0xdeadbeef
+
+phandle __of_get_tree_max_phandle(struct device_node *node,
+		phandle max_phandle);
+phandle of_get_tree_max_phandle(void);
+
+void __of_adjust_tree_phandles(struct device_node *node,
+		int phandle_delta);
+int __of_adjust_tree_phandle_references(struct device_node *node,
+		int phandle_delta);
+
+struct device_node *__of_find_node_by_full_name(struct device_node *node,
+		const char *full_name);
+
+int of_resolve(struct device_node *resolve);
+
+#endif
+
+void __of_tree_verify(struct device_node *tree, struct device_node *all_nodes);
+void of_tree_verify(struct device_node *tree, struct device_node *all_nodes);
 
 #endif /* _LINUX_OF_H */

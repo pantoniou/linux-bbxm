@@ -83,4 +83,18 @@ config OF_MTD
 	depends on MTD
 	def_bool y
 
+config OF_OVERLAY
+	bool "OF overlay support"
+	depends on OF
+	select OF_DYNAMIC
+	select OF_DEVICE
+	help
+	  OpenFirmware overlay support
+
+config OF_PLUGIN
+	bool "OF Plugin support"
+	select OF_OVERLAY
+	help
+	  Enable OF plugins
+
 endmenu # OF

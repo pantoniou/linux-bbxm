@@ -1,4 +1,4 @@
-obj-y = base.o dma.o
+obj-y = base.o dma.o dump.o util.o
 obj-$(CONFIG_OF_FLATTREE) += fdt.o
 obj-$(CONFIG_OF_PROMTREE) += pdt.o
 obj-$(CONFIG_OF_ADDRESS)  += address.o
@@ -11,3 +11,6 @@ obj-$(CONFIG_OF_MDIO)	+= of_mdio.o
 obj-$(CONFIG_OF_PCI)	+= of_pci.o
 obj-$(CONFIG_OF_PCI_IRQ)  += of_pci_irq.o
 obj-$(CONFIG_OF_MTD)	+= of_mtd.o
+obj-$(CONFIG_OF_OVERLAY) += overlay.o
+obj-$(CONFIG_OF_PLUGIN)  += resolver.o
+obj-y += dump.o
