@@ -275,7 +275,11 @@ ifeq ($(CONFIG_USE_OF),y)
 KBUILD_DTBS := dtbs
 endif
 
-all:	$(KBUILD_IMAGE) $(KBUILD_DTBS)
+# Build the DT binary blob plugins if we have OF plugins configured
+ifeq ($(CONFIG_OF_PLUGIN),y)
+KBUILD_DTBOS := dtbos
+endif
+all:	$(KBUILD_IMAGE) $(KBUILD_DTBS) $(KBUILD_DTBOS)
 
 boot := arch/arm/boot
 
@@ -300,6 +304,9 @@ uImage-dtb.%:
 dtbs: scripts
 	$(Q)$(MAKE) $(build)=$(boot) MACHINE=$(MACHINE) $(boot)/$@
 
+dtbos: scripts
+	$(Q)$(MAKE) $(build)=$(boot) MACHINE=$(MACHINE) $(boot)/$@
+
 # We use MRPROPER_FILES and CLEAN_FILES now
 archclean:
 	$(Q)$(MAKE) $(clean)=$(boot)
@@ -317,6 +324,7 @@ define archhelp
   echo  '  bootpImage    - Combined zImage and initial RAM disk' 
   echo  '                  (supply initrd image via make variable INITRD=<path>)'
   echo  '* dtbs          - Build device tree blobs for enabled boards'
+  echo  '* dtbos         - Build device tree plugin blobs'
   echo  '  install       - Install uncompressed kernel'
   echo  '  zinstall      - Install compressed kernel'
   echo  '  uinstall      - Install U-Boot wrapped compressed kernel'

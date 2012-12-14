@@ -1,5 +1,9 @@
 ifeq ($(CONFIG_OF),y)
 
+ifeq ($(CONFIG_OF_PLUGIN),y)
+DTC_FLAGS += -@
+endif
+
 dtb-$(CONFIG_ARCH_AT91) += aks-cdu.dtb \
 	at91sam9263ek.dtb \
 	at91sam9g20ek_2mmc.dtb \
