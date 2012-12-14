@@ -83,4 +83,22 @@ config OF_MTD
 	depends on MTD
 	def_bool y
 
+config OF_OVERLAY
+	bool "OF overlay support"
+	depends on OF
+	select OF_DYNAMIC
+	select OF_DEVICE
+	select OF_PLUGIN
+	help
+	  OpenFirmware overlay support. Allows you to modify on runtime the
+	  live tree with overlays.
+
+config OF_PLUGIN
+	bool "OF Plugin support"
+	depends on OF
+	select OF_DYNAMIC
+	select OF_DEVICE
+	help
+	  Enable OF plugins
+
 endmenu # OF
