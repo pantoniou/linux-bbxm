@@ -60,6 +60,28 @@ $(obj)/zImage-dtb.%:	$(obj)/%.dtb $(obj)/zImage
 
 endif
 
+ifeq ($(CONFIG_OF_RESOLVE),y)
+DTC_FLAGS += -@
+endif
+
+targets += $(dtb-y) $(dtbo-y)
+
+# Rule to build device tree blobs
+$(obj)/%.dtb: $(src)/dts/%.dts FORCE
+	$(call if_changed_dep,dtc)
+
+$(obj)/dtbs: $(addprefix $(obj)/, $(dtb-y))
+
+clean-files := *.dtb
+
+# Rule to build device tree plugin blobs
+$(obj)/%.dtbo: $(src)/dts/%.dts FORCE
+	$(call if_changed_dep,dtco)
+
+$(obj)/dtbos: $(addprefix $(obj)/, $(dtbo-y))
+
+clean-files := *.dtbo
+
 ifneq ($(LOADADDR),)
   UIMAGE_LOADADDR=$(LOADADDR)
 else
