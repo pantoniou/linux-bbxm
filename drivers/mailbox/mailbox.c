@@ -45,21 +45,17 @@ MODULE_PARM_DESC(mbox_kfifo_size, "Size of mailbox kfifo (bytes)");
 
 
 /* Mailbox FIFO handle functions */
-static inline mbox_msg_t mbox_fifo_read(struct mailbox *mbox, struct mailbox_msg *msg)
+static inline mbox_msg_t mbox_read(struct mailbox *mbox, struct mailbox_msg *msg)
 {
-	return mbox->ops->fifo_read(mbox, msg);
+	return mbox->ops->read(mbox, msg);
 }
-static inline void mbox_fifo_write(struct mailbox *mbox, struct mailbox_msg *msg)
+static inline void mbox_write(struct mailbox *mbox, struct mailbox_msg *msg)
 {
-	mbox->ops->fifo_write(mbox, msg);
+	mbox->ops->write(mbox, msg);
 }
-static inline int mbox_fifo_empty(struct mailbox *mbox)
+static inline int mbox_empty(struct mailbox *mbox)
 {
-	return mbox->ops->fifo_empty(mbox);
-}
-static inline int mbox_fifo_full(struct mailbox *mbox)
-{
-	return mbox->ops->fifo_full(mbox);
+	return mbox->ops->empty(mbox);
 }
 
 /* Mailbox IRQ handle functions */
@@ -78,16 +74,7 @@ static inline int is_mbox_irq(struct mailbox *mbox, mailbox_irq_t irq)
  */
 static int __mbox_poll_for_space(struct mailbox *mbox)
 {
-	int ret = 0, i = 1000;
-
-	while (mbox_fifo_full(mbox)) {
-		if (mbox->ops->type == MBOX_HW_FIFO2_TYPE)
-			return -1;
-		if (--i == 0)
-			return -1;
-		udelay(1);
-	}
-	return ret;
+	return mbox->ops->poll_for_space(mbox);
 }
 
 int mailbox_msg_send(struct mailbox *mbox, struct mailbox_msg *msg)
@@ -103,7 +90,7 @@ int mailbox_msg_send(struct mailbox *mbox, struct mailbox_msg *msg)
 	}
 
 	if (kfifo_is_empty(&mq->fifo) && !__mbox_poll_for_space(mbox)) {
-		mbox_fifo_write(mbox, msg);
+		mbox_write(mbox, msg);
 		goto out;
 	}
 
@@ -182,7 +169,7 @@ static void mbox_tx_tasklet(unsigned long tx_data)
 			msg.pdata = tx_data_buf;
 		}
 
-		mbox_fifo_write(mbox, &msg);
+		mbox_write(mbox, &msg);
 	}
 }
 
@@ -236,7 +223,7 @@ static void __mbox_rx_interrupt(struct mailbox *mbox)
 	struct mailbox_msg msg;
 	int len;
 
-	while (!mbox_fifo_empty(mbox)) {
+	while (!mbox_empty(mbox)) {
 		if (unlikely(kfifo_avail(&mq->fifo) <
 				(sizeof(msg) + CONFIG_MBOX_DATA_SIZE))) {
 			mailbox_disable_irq(mbox, IRQ_RX);
@@ -244,7 +231,7 @@ static void __mbox_rx_interrupt(struct mailbox *mbox)
 			goto nomem;
 		}
 
-		mbox_fifo_read(mbox, &msg);
+		mbox_read(mbox, &msg);
 
 		len = kfifo_in(&mq->fifo, (unsigned char *)&msg, sizeof(msg));
 		WARN_ON(len != sizeof(msg));
@@ -254,9 +241,6 @@ static void __mbox_rx_interrupt(struct mailbox *mbox)
 					msg.size);
 			WARN_ON(len != msg.size);
 		}
-
-		if (mbox->ops->type == MBOX_HW_FIFO1_TYPE)
-			break;
 	}
 
 	/* no more messages in the fifo. clear IRQ source. */

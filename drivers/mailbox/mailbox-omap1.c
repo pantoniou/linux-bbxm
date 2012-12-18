@@ -14,6 +14,8 @@
 #include <linux/platform_device.h>
 #include <linux/io.h>
 
+#include <asm/delay.h>
+
 #include "mailbox_internal.h"
 
 #define MAILBOX_ARM2DSP1               0x00
@@ -37,6 +39,7 @@ struct omap_mbox1_fifo {
 struct omap_mbox1_priv {
 	struct omap_mbox1_fifo tx_fifo;
 	struct omap_mbox1_fifo rx_fifo;
+	bool empty_flag;
 };
 
 static inline int mbox_read_reg(size_t ofs)
@@ -50,14 +53,15 @@ static inline void mbox_write_reg(u32 val, size_t ofs)
 }
 
 /* msg */
-static mbox_msg_t omap1_mbox_fifo_read(struct mailbox *mbox, struct mailbox_msg *msg)
+static int omap1_mbox_fifo_read(struct mailbox *mbox, struct mailbox_msg *msg)
 {
-	struct omap_mbox1_fifo *fifo =
-		&((struct omap_mbox1_priv *)mbox->priv)->rx_fifo;
+	struct omap_mbox1_priv *priv = (struct omap_mbox1_priv *)mbox->priv;
+	struct omap_mbox1_fifo *fifo = &priv->rx_fifo;
 
 	msg->header = mbox_read_reg(fifo->data);
 	msg->header |= ((mbox_msg_t) mbox_read_reg(fifo->cmd)) << 16;
 	MAILBOX_FILL_HEADER_MSG((*msg), msg->header);
+	priv->empty_flag = false;
 
 	return 0;
 }
@@ -75,7 +79,11 @@ omap1_mbox_fifo_write(struct mailbox *mbox, struct mailbox_msg *msg)
 
 static int omap1_mbox_fifo_empty(struct mailbox *mbox)
 {
-	return 0;
+	struct omap_mbox1_priv *priv = (struct omap_mbox1_priv *)mbox->priv;
+	if (priv->empty_flag)
+		return 0;
+	else
+		return 1;
 }
 
 static int omap1_mbox_fifo_full(struct mailbox *mbox)
@@ -84,6 +92,18 @@ static int omap1_mbox_fifo_full(struct mailbox *mbox)
 		&((struct omap_mbox1_priv *)mbox->priv)->rx_fifo;
 
 	return mbox_read_reg(fifo->flag);
+}
+
+static int ompa1_mbox_poll_for_space(struct mailbox *mbox)
+{
+	int ret = 0, i = 1000;
+
+	while (omap1_mbox_fifo_full(mbox)) {
+		if (--i == 0)
+			return -1;
+		udelay(1);
+	}
+	return ret;
 }
 
 /* irq */
@@ -104,17 +124,22 @@ omap1_mbox_disable_irq(struct mailbox *mbox, mailbox_type_t irq)
 static int
 omap1_mbox_is_irq(struct mailbox *mbox, mailbox_type_t irq)
 {
+	struct omap_mbox1_priv *priv = (struct omap_mbox1_priv *)mbox->priv;
+
 	if (irq == IRQ_TX)
 		return 0;
+	if (irq == IRQ_RX)
+		priv->empty_flag = true;
+
 	return 1;
 }
 
 static struct mailbox_ops omap1_mbox_ops = {
 	.type           = MBOX_HW_FIFO1_TYPE,
-	.fifo_read      = omap1_mbox_fifo_read,
-	.fifo_write     = omap1_mbox_fifo_write,
-	.fifo_empty     = omap1_mbox_fifo_empty,
-	.fifo_full      = omap1_mbox_fifo_full,
+	.read           = omap1_mbox_fifo_read,
+	.write          = omap1_mbox_fifo_write,
+	.empty     = omap1_mbox_fifo_empty,
+	.poll_for_space = ompa1_mbox_poll_for_space,
 	.enable_irq     = omap1_mbox_enable_irq,
 	.disable_irq    = omap1_mbox_disable_irq,
 	.is_irq         = omap1_mbox_is_irq,
