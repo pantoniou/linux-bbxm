@@ -17,30 +17,30 @@
 #include <linux/io.h>
 #include <linux/pm_runtime.h>
 
-#include <plat/mailbox.h>
+#include <plat/cpu.h>
 
-#include "soc.h"
+#include "mailbox_internal.h"
 
-#define MAILBOX_REVISION		0x000
-#define MAILBOX_MESSAGE(m)		(0x040 + 4 * (m))
-#define MAILBOX_FIFOSTATUS(m)		(0x080 + 4 * (m))
-#define MAILBOX_MSGSTATUS(m)		(0x0c0 + 4 * (m))
-#define MAILBOX_IRQSTATUS(u)		(0x100 + 8 * (u))
-#define MAILBOX_IRQENABLE(u)		(0x104 + 8 * (u))
+#define MAILBOX_REVISION               0x000
+#define MAILBOX_MESSAGE(m)             (0x040 + 4 * (m))
+#define MAILBOX_FIFOSTATUS(m)          (0x080 + 4 * (m))
+#define MAILBOX_MSGSTATUS(m)           (0x0c0 + 4 * (m))
+#define MAILBOX_IRQSTATUS(u)           (0x100 + 8 * (u))
+#define MAILBOX_IRQENABLE(u)           (0x104 + 8 * (u))
 
-#define OMAP4_MAILBOX_IRQSTATUS(u)	(0x104 + 0x10 * (u))
-#define OMAP4_MAILBOX_IRQENABLE(u)	(0x108 + 0x10 * (u))
-#define OMAP4_MAILBOX_IRQENABLE_CLR(u)	(0x10c + 0x10 * (u))
+#define OMAP4_MAILBOX_IRQSTATUS(u)     (0x104 + 0x10 * (u))
+#define OMAP4_MAILBOX_IRQENABLE(u)     (0x108 + 0x10 * (u))
+#define OMAP4_MAILBOX_IRQENABLE_CLR(u) (0x10c + 0x10 * (u))
 
-#define MAILBOX_IRQ_NEWMSG(m)		(1 << (2 * (m)))
-#define MAILBOX_IRQ_NOTFULL(m)		(1 << (2 * (m) + 1))
+#define MAILBOX_IRQ_NEWMSG(m)          (1 << (2 * (m)))
+#define MAILBOX_IRQ_NOTFULL(m)         (1 << (2 * (m) + 1))
 
-#define MBOX_REG_SIZE			0x120
+#define MBOX_REG_SIZE                  0x120
 
-#define OMAP4_MBOX_REG_SIZE		0x130
+#define OMAP4_MBOX_REG_SIZE            0x130
 
-#define MBOX_NR_REGS			(MBOX_REG_SIZE / sizeof(u32))
-#define OMAP4_MBOX_NR_REGS		(OMAP4_MBOX_REG_SIZE / sizeof(u32))
+#define MBOX_NR_REGS                   (MBOX_REG_SIZE / sizeof(u32))
+#define OMAP4_MBOX_NR_REGS             (OMAP4_MBOX_REG_SIZE / sizeof(u32))
 
 static void __iomem *mbox_base;
 
@@ -62,7 +62,7 @@ struct omap_mbox2_priv {
 };
 
 static void omap2_mbox_enable_irq(struct omap_mbox *mbox,
-				  omap_mbox_type_t irq);
+		omap_mbox_type_t irq);
 
 static inline unsigned int mbox_read_reg(size_t ofs)
 {
@@ -183,7 +183,7 @@ static void omap2_mbox_save_ctx(struct omap_mbox *mbox)
 		p->ctx[i] = mbox_read_reg(i * sizeof(u32));
 
 		dev_dbg(mbox->dev, "%s: [%02x] %08x\n", __func__,
-			i, p->ctx[i]);
+				i, p->ctx[i]);
 	}
 }
 
@@ -200,24 +200,24 @@ static void omap2_mbox_restore_ctx(struct omap_mbox *mbox)
 		mbox_write_reg(p->ctx[i], i * sizeof(u32));
 
 		dev_dbg(mbox->dev, "%s: [%02x] %08x\n", __func__,
-			i, p->ctx[i]);
+				i, p->ctx[i]);
 	}
 }
 
 static struct omap_mbox_ops omap2_mbox_ops = {
-	.type		= OMAP_MBOX_TYPE2,
-	.startup	= omap2_mbox_startup,
-	.shutdown	= omap2_mbox_shutdown,
-	.fifo_read	= omap2_mbox_fifo_read,
-	.fifo_write	= omap2_mbox_fifo_write,
-	.fifo_empty	= omap2_mbox_fifo_empty,
-	.fifo_full	= omap2_mbox_fifo_full,
-	.enable_irq	= omap2_mbox_enable_irq,
-	.disable_irq	= omap2_mbox_disable_irq,
-	.ack_irq	= omap2_mbox_ack_irq,
-	.is_irq		= omap2_mbox_is_irq,
-	.save_ctx	= omap2_mbox_save_ctx,
-	.restore_ctx	= omap2_mbox_restore_ctx,
+	.type           = OMAP_MBOX_TYPE2,
+	.startup        = omap2_mbox_startup,
+	.shutdown       = omap2_mbox_shutdown,
+	.fifo_read      = omap2_mbox_fifo_read,
+	.fifo_write     = omap2_mbox_fifo_write,
+	.fifo_empty     = omap2_mbox_fifo_empty,
+	.fifo_full      = omap2_mbox_fifo_full,
+	.enable_irq     = omap2_mbox_enable_irq,
+	.disable_irq    = omap2_mbox_disable_irq,
+	.ack_irq        = omap2_mbox_ack_irq,
+	.is_irq         = omap2_mbox_is_irq,
+	.save_ctx       = omap2_mbox_save_ctx,
+	.restore_ctx    = omap2_mbox_restore_ctx,
 };
 
 /*
@@ -233,24 +233,24 @@ static struct omap_mbox_ops omap2_mbox_ops = {
 /* DSP */
 static struct omap_mbox2_priv omap2_mbox_dsp_priv = {
 	.tx_fifo = {
-		.msg		= MAILBOX_MESSAGE(0),
-		.fifo_stat	= MAILBOX_FIFOSTATUS(0),
+		.msg            = MAILBOX_MESSAGE(0),
+		.fifo_stat      = MAILBOX_FIFOSTATUS(0),
 	},
 	.rx_fifo = {
-		.msg		= MAILBOX_MESSAGE(1),
-		.msg_stat	= MAILBOX_MSGSTATUS(1),
+		.msg            = MAILBOX_MESSAGE(1),
+		.msg_stat       = MAILBOX_MSGSTATUS(1),
 	},
-	.irqenable	= MAILBOX_IRQENABLE(0),
-	.irqstatus	= MAILBOX_IRQSTATUS(0),
-	.notfull_bit	= MAILBOX_IRQ_NOTFULL(0),
-	.newmsg_bit	= MAILBOX_IRQ_NEWMSG(1),
-	.irqdisable	= MAILBOX_IRQENABLE(0),
+	.irqenable      = MAILBOX_IRQENABLE(0),
+	.irqstatus      = MAILBOX_IRQSTATUS(0),
+	.notfull_bit    = MAILBOX_IRQ_NOTFULL(0),
+	.newmsg_bit     = MAILBOX_IRQ_NEWMSG(1),
+	.irqdisable     = MAILBOX_IRQENABLE(0),
 };
 
 struct omap_mbox mbox_dsp_info = {
-	.name	= "dsp",
-	.ops	= &omap2_mbox_ops,
-	.priv	= &omap2_mbox_dsp_priv,
+	.name   = "dsp",
+	.ops    = &omap2_mbox_ops,
+	.priv   = &omap2_mbox_dsp_priv,
 };
 #endif
 
@@ -262,24 +262,24 @@ struct omap_mbox *omap3_mboxes[] = { &mbox_dsp_info, NULL };
 /* IVA */
 static struct omap_mbox2_priv omap2_mbox_iva_priv = {
 	.tx_fifo = {
-		.msg		= MAILBOX_MESSAGE(2),
-		.fifo_stat	= MAILBOX_FIFOSTATUS(2),
+		.msg            = MAILBOX_MESSAGE(2),
+		.fifo_stat      = MAILBOX_FIFOSTATUS(2),
 	},
 	.rx_fifo = {
-		.msg		= MAILBOX_MESSAGE(3),
-		.msg_stat	= MAILBOX_MSGSTATUS(3),
+		.msg            = MAILBOX_MESSAGE(3),
+		.msg_stat       = MAILBOX_MSGSTATUS(3),
 	},
-	.irqenable	= MAILBOX_IRQENABLE(3),
-	.irqstatus	= MAILBOX_IRQSTATUS(3),
-	.notfull_bit	= MAILBOX_IRQ_NOTFULL(2),
-	.newmsg_bit	= MAILBOX_IRQ_NEWMSG(3),
-	.irqdisable	= MAILBOX_IRQENABLE(3),
+	.irqenable      = MAILBOX_IRQENABLE(3),
+	.irqstatus      = MAILBOX_IRQSTATUS(3),
+	.notfull_bit    = MAILBOX_IRQ_NOTFULL(2),
+	.newmsg_bit     = MAILBOX_IRQ_NEWMSG(3),
+	.irqdisable     = MAILBOX_IRQENABLE(3),
 };
 
 static struct omap_mbox mbox_iva_info = {
-	.name	= "iva",
-	.ops	= &omap2_mbox_ops,
-	.priv	= &omap2_mbox_iva_priv,
+	.name   = "iva",
+	.ops    = &omap2_mbox_ops,
+	.priv   = &omap2_mbox_iva_priv,
 };
 #endif
 
@@ -297,46 +297,46 @@ struct omap_mbox *omap2_mboxes[] = {
 /* OMAP4 */
 static struct omap_mbox2_priv omap2_mbox_1_priv = {
 	.tx_fifo = {
-		.msg		= MAILBOX_MESSAGE(0),
-		.fifo_stat	= MAILBOX_FIFOSTATUS(0),
+		.msg            = MAILBOX_MESSAGE(0),
+		.fifo_stat      = MAILBOX_FIFOSTATUS(0),
 	},
 	.rx_fifo = {
-		.msg		= MAILBOX_MESSAGE(1),
-		.msg_stat	= MAILBOX_MSGSTATUS(1),
+		.msg            = MAILBOX_MESSAGE(1),
+		.msg_stat       = MAILBOX_MSGSTATUS(1),
 	},
-	.irqenable	= OMAP4_MAILBOX_IRQENABLE(0),
-	.irqstatus	= OMAP4_MAILBOX_IRQSTATUS(0),
-	.notfull_bit	= MAILBOX_IRQ_NOTFULL(0),
-	.newmsg_bit	= MAILBOX_IRQ_NEWMSG(1),
-	.irqdisable	= OMAP4_MAILBOX_IRQENABLE_CLR(0),
+	.irqenable      = OMAP4_MAILBOX_IRQENABLE(0),
+	.irqstatus      = OMAP4_MAILBOX_IRQSTATUS(0),
+	.notfull_bit    = MAILBOX_IRQ_NOTFULL(0),
+	.newmsg_bit     = MAILBOX_IRQ_NEWMSG(1),
+	.irqdisable     = OMAP4_MAILBOX_IRQENABLE_CLR(0),
 };
 
 struct omap_mbox mbox_1_info = {
-	.name	= "mailbox-1",
-	.ops	= &omap2_mbox_ops,
-	.priv	= &omap2_mbox_1_priv,
+	.name   = "mailbox-1",
+	.ops    = &omap2_mbox_ops,
+	.priv   = &omap2_mbox_1_priv,
 };
 
 static struct omap_mbox2_priv omap2_mbox_2_priv = {
 	.tx_fifo = {
-		.msg		= MAILBOX_MESSAGE(3),
-		.fifo_stat	= MAILBOX_FIFOSTATUS(3),
+		.msg            = MAILBOX_MESSAGE(3),
+		.fifo_stat      = MAILBOX_FIFOSTATUS(3),
 	},
 	.rx_fifo = {
-		.msg		= MAILBOX_MESSAGE(2),
-		.msg_stat	= MAILBOX_MSGSTATUS(2),
+		.msg            = MAILBOX_MESSAGE(2),
+		.msg_stat       = MAILBOX_MSGSTATUS(2),
 	},
-	.irqenable	= OMAP4_MAILBOX_IRQENABLE(0),
-	.irqstatus	= OMAP4_MAILBOX_IRQSTATUS(0),
-	.notfull_bit	= MAILBOX_IRQ_NOTFULL(3),
-	.newmsg_bit	= MAILBOX_IRQ_NEWMSG(2),
+	.irqenable      = OMAP4_MAILBOX_IRQENABLE(0),
+	.irqstatus      = OMAP4_MAILBOX_IRQSTATUS(0),
+	.notfull_bit    = MAILBOX_IRQ_NOTFULL(3),
+	.newmsg_bit     = MAILBOX_IRQ_NEWMSG(2),
 	.irqdisable     = OMAP4_MAILBOX_IRQENABLE_CLR(0),
 };
 
 struct omap_mbox mbox_2_info = {
-	.name	= "mailbox-2",
-	.ops	= &omap2_mbox_ops,
-	.priv	= &omap2_mbox_2_priv,
+	.name   = "mailbox-2",
+	.ops    = &omap2_mbox_ops,
+	.priv   = &omap2_mbox_2_priv,
 };
 
 struct omap_mbox *omap4_mboxes[] = { &mbox_1_info, &mbox_2_info, NULL };
