@@ -95,7 +95,7 @@ int mailbox_msg_send(struct mailbox *mbox, struct mailbox_msg *msg)
 	struct mailbox_queue *mq = mbox->txq;
 	int ret = 0, len;
 
-	spin_lock_bh(&mq->lock);
+	mutex_lock(&mq->mlock);
 
 	if (kfifo_avail(&mq->fifo) < (sizeof(msg) + msg->size)) {
 		ret = -ENOMEM;
@@ -118,7 +118,7 @@ int mailbox_msg_send(struct mailbox *mbox, struct mailbox_msg *msg)
 	tasklet_schedule(&mbox->txq->tasklet);
 
 out:
-	spin_unlock_bh(&mq->lock);
+	mutex_unlock(&mq->mlock);
 	return ret;
 }
 EXPORT_SYMBOL(mailbox_msg_send);
@@ -198,6 +198,7 @@ static void mbox_rx_work(struct work_struct *work)
 	int len;
 	struct mailbox *mbox = mq->mbox;
 	struct mailbox_msg msg;
+	unsigned long flags;
 
 	while (kfifo_len(&mq->fifo) >= sizeof(msg)) {
 		len = kfifo_out(&mq->fifo, (unsigned char *)&msg, sizeof(msg));
@@ -210,12 +211,12 @@ static void mbox_rx_work(struct work_struct *work)
 		}
 
 		blocking_notifier_call_chain(&mbox->notifier, len, (void *)&msg);
-		spin_lock_irq(&mq->lock);
+		spin_lock_irqsave(&mq->lock, flags);
 		if (mq->full) {
 			mq->full = false;
 			mailbox_enable_irq(mbox, IRQ_RX);
 		}
-		spin_unlock_irq(&mq->lock);
+		spin_unlock_irqrestore(&mq->lock, flags);
 	}
 }
 
@@ -288,6 +289,7 @@ static struct mailbox_queue *mbox_queue_alloc(struct mailbox *mbox,
 		return NULL;
 
 	spin_lock_init(&mq->lock);
+	mutex_init(&mq->mlock);
 
 	if (kfifo_alloc(&mq->fifo, mbox_kfifo_size, GFP_KERNEL))
 		goto error;
