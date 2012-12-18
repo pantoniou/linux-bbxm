@@ -25,9 +25,8 @@ config OMAP2PLUS_MBOX
          to use OMAP2+ Mailbox framework support.
 
 
-config OMAP_MBOX_KFIFO_SIZE
+config MBOX_KFIFO_SIZE
        int "Mailbox kfifo default buffer size (bytes)"
-       depends on OMAP1_MBOX || OMAP2PLUS_MBOX
        default 256
        help
          Specify the default size of mailbox's kfifo buffers (bytes).
