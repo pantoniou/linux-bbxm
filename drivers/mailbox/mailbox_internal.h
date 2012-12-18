@@ -25,8 +25,8 @@ struct mailbox_ops {
 	int             (*startup)(struct mailbox *mbox);
 	void            (*shutdown)(struct mailbox *mbox);
 	/* fifo */
-	mbox_msg_t      (*fifo_read)(struct mailbox *mbox);
-	void            (*fifo_write)(struct mailbox *mbox, mbox_msg_t msg);
+	mbox_msg_t      (*fifo_read)(struct mailbox *mbox, struct mailbox_msg *msg);
+	int             (*fifo_write)(struct mailbox *mbox, struct mailbox_msg *msg);
 	int             (*fifo_empty)(struct mailbox *mbox);
 	int             (*fifo_full)(struct mailbox *mbox);
 	/* irq */
@@ -46,7 +46,7 @@ struct mailbox_queue {
 	struct kfifo            fifo;
 	struct work_struct      work;
 	struct tasklet_struct   tasklet;
-	struct mailbox        *mbox;
+	struct mailbox          *mbox;
 	bool full;
 };
 

@@ -95,18 +95,22 @@ static void omap2_mbox_shutdown(struct mailbox *mbox)
 }
 
 /* Mailbox FIFO handle functions */
-static mbox_msg_t omap2_mbox_fifo_read(struct mailbox *mbox)
+static mbox_msg_t omap2_mbox_fifo_read(struct mailbox *mbox, struct mailbox_msg *msg)
 {
 	struct omap_mbox2_fifo *fifo =
 		&((struct omap_mbox2_priv *)mbox->priv)->rx_fifo;
-	return (mbox_msg_t) mbox_read_reg(fifo->msg);
+	msg->header = mbox_read_reg(fifo->msg);
+	MAILBOX_FILL_HEADER_MSG((*msg), msg->header);
+
+	return 0;
 }
 
-static void omap2_mbox_fifo_write(struct mailbox *mbox, mbox_msg_t msg)
+static int omap2_mbox_fifo_write(struct mailbox *mbox, struct mailbox_msg *msg)
 {
 	struct omap_mbox2_fifo *fifo =
 		&((struct omap_mbox2_priv *)mbox->priv)->tx_fifo;
-	mbox_write_reg(msg, fifo->msg);
+	mbox_write_reg(msg->header, fifo->msg);
+	return 0;
 }
 
 static int omap2_mbox_fifo_empty(struct mailbox *mbox)

@@ -374,6 +374,7 @@ int sm_interrupt_dsp(struct bridge_dev_context *dev_context, u16 mb_val)
 	struct omap_dsp_platform_data *pdata =
 		omap_dspbridge_dev->dev.platform_data;
 	struct cfg_hostres *resources = dev_context->resources;
+	struct mailbox_msg msg;
 	int status = 0;
 	u32 temp;
 
@@ -427,7 +428,8 @@ int sm_interrupt_dsp(struct bridge_dev_context *dev_context, u16 mb_val)
 		dsp_clock_enable_all(dev_context->dsp_per_clks);
 	}
 
-	status = mailbox_msg_send(dev_context->mbox, mb_val);
+	MAILBOX_FILL_HEADER_MSG(msg, mb_val);
+	status = mailbox_msg_send(dev_context->mbox, &msg);
 
 	if (status) {
 		pr_err("mailbox_msg_send Fail and status = %d\n", status);
