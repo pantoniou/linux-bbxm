@@ -156,10 +156,10 @@
 			/* geiger cape version A0 without an EEPROM */
 			slot@5 {
 				ti,cape-override;
-				compatible = "kernel-command-line";
+				compatible = "kernel-command-line", "runtime";
 				board-name = "Bone-Geiger";
 				version = "00A0";
-				manufacturer = "Geiger Industries";
+				manufacturer = "Geiger Inc.";
 				part-number = "BB-BONE-GEIGER";
 			};
 		};
@@ -187,6 +187,15 @@
 				version@00A0 {
 					version = "00A0";
 					dtbo = "cape-bone-2g-emmc1.dtbo";
+				};
+			};
+
+			/* geiger cape */
+			cape@2 {
+				part-number = "BB-BONE-GEIGER";
+				version@00A0 {
+					version = "00A0";
+					dtbo = "cape-bone-geiger-00A0.dtbo";
 				};
 			};
 		};

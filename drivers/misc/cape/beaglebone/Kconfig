@@ -9,3 +9,10 @@ config CAPE_BEAGLEBONE
 	select OF_PLUGIN
 	help
 	  Say Y here to include support for beaglebone capes
+
+config CAPE_BEAGLEBONE_GEIGER
+	tristate "Beaglebone Geiger Cape"
+	depends on CAPE_BEAGLEBONE
+	default n
+	help
+	  Say Y here to include support for the Geiger Cape

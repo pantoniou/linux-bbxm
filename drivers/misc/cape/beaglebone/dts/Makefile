@@ -7,5 +7,6 @@ $(obj)/%.dtbo: $(src)/dts/%.dts FORCE
 $(obj)/dtbos: $(addprefix $(obj)/, $(dtbo-y))
 
 extra-y += cape-bone-2g-emmc1.dtbo \
-	   cape-bone-dvi-00A0.dtbo cape-bone-dvi-00A1.dtbo
+	   cape-bone-dvi-00A0.dtbo cape-bone-dvi-00A1.dtbo \
+	   cape-bone-geiger-00A0.dtbo
 
