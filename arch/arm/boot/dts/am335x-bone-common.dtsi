@@ -198,6 +198,15 @@
 					dtbo = "cape-bone-geiger-00A0.dtbo";
 				};
 			};
+
+			/* LCD3 cape */
+			cape@3 {
+				part-number = "BB-BONE-LCD3-01";
+				version@00A0 {
+					version = "00A0";
+					dtbo = "cape-bone-lcd3-00A0.dtbo";
+				};
+			};
 		};
 	};
 };
