@@ -31,6 +31,7 @@ struct mailbox_msg {
 #define MAILBOX_FILL_HEADER_MSG(_msg, _header) \
 	MAILBOX_FILL_MSG(_msg, _header, NULL, 0);
 
+int mailbox_rx_flush(struct mailbox *);
 int mailbox_msg_send(struct mailbox *, struct mailbox_msg *msg);
 struct mailbox_msg *mailbox_msg_send_receive_no_irq(struct mailbox *,
 		struct mailbox_msg *msg);

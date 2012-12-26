@@ -127,6 +127,23 @@ static int omap2_mbox_fifo_full(struct mailbox *mbox)
 	return mbox_read_reg(fifo->fifo_stat);
 }
 
+static int omap2_mbox_fifo_needs_flush(struct mailbox *mbox)
+{
+	struct omap_mbox2_priv *p = mbox->priv;
+	struct omap_mbox2_fifo *fifo = &p->tx_fifo;
+
+	return mbox_read_reg(fifo->msg_stat);
+}
+
+static void omap2_mbox_fifo_readback(struct mailbox *mbox,
+			struct mailbox_msg *msg)
+{
+	struct omap_mbox2_priv *p = mbox->priv;
+	struct omap_mbox2_fifo *fifo = &p->tx_fifo;
+
+	msg->header = mbox_read_reg(fifo->msg);
+}
+
 static int ompa2_mbox_poll_for_space(struct mailbox *mbox)
 {
 	if (omap2_mbox_fifo_full(mbox))
@@ -223,6 +240,8 @@ static struct mailbox_ops omap2_mbox_ops = {
 	.read           = omap2_mbox_fifo_read,
 	.write          = omap2_mbox_fifo_write,
 	.empty          = omap2_mbox_fifo_empty,
+	.fifo_needs_flush	= omap2_mbox_fifo_needs_flush,
+	.fifo_readback		= omap2_mbox_fifo_readback,
 	.poll_for_space = ompa2_mbox_poll_for_space,
 	.enable_irq     = omap2_mbox_enable_irq,
 	.disable_irq    = omap2_mbox_disable_irq,

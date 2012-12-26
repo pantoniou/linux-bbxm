@@ -30,6 +30,9 @@ struct mailbox_ops {
 	int             (*write)(struct mailbox *mbox, struct mailbox_msg *msg);
 	int             (*empty)(struct mailbox *mbox);
 	int             (*poll_for_space)(struct mailbox *mbox);
+	int		(*fifo_needs_flush)(struct mailbox *mbox);
+	void		(*fifo_readback)(struct mailbox *mbox,
+				struct mailbox_msg *msg);
 	/* irq */
 	void            (*enable_irq)(struct mailbox *mbox,
 			mailbox_irq_t irq);
