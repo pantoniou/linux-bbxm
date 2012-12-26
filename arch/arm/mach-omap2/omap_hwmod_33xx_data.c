@@ -414,7 +414,6 @@ static struct omap_hwmod am33xx_adc_tsc_hwmod = {
  *    - cEFUSE (doesn't fall under any ocp_if)
  *    - clkdiv32k
  *    - debugss
- *    - ocmc ram
  *    - ocp watch point
  */
 #if 0
@@ -474,25 +473,6 @@ static struct omap_hwmod am33xx_debugss_hwmod = {
 	.prcm		= {
 		.omap4	= {
 			.clkctrl_offs	= AM33XX_CM_WKUP_DEBUGSS_CLKCTRL_OFFSET,
-			.modulemode	= MODULEMODE_SWCTRL,
-		},
-	},
-};
-
-/* ocmcram */
-static struct omap_hwmod_class am33xx_ocmcram_hwmod_class = {
-	.name = "ocmcram",
-};
-
-static struct omap_hwmod am33xx_ocmcram_hwmod = {
-	.name		= "ocmcram",
-	.class		= &am33xx_ocmcram_hwmod_class,
-	.clkdm_name	= "l3_clkdm",
-	.flags		= (HWMOD_INIT_NO_IDLE | HWMOD_INIT_NO_RESET),
-	.main_clk	= "l3_gclk",
-	.prcm		= {
-		.omap4	= {
-			.clkctrl_offs	= AM33XX_CM_PER_OCMCRAM_CLKCTRL_OFFSET,
 			.modulemode	= MODULEMODE_SWCTRL,
 		},
 	},
@@ -591,6 +571,27 @@ static struct omap_hwmod am33xx_sha0_hwmod = {
 	.prcm		= {
 		.omap4	= {
 			.clkctrl_offs	= AM33XX_CM_PER_SHA0_CLKCTRL_OFFSET,
+			.modulemode	= MODULEMODE_SWCTRL,
+		},
+	},
+};
+
+
+
+/* ocmcram */
+static struct omap_hwmod_class am33xx_ocmcram_hwmod_class = {
+	.name = "ocmcram",
+};
+
+static struct omap_hwmod am33xx_ocmcram_hwmod = {
+	.name		= "ocmcram",
+	.class		= &am33xx_ocmcram_hwmod_class,
+	.clkdm_name	= "l3_clkdm",
+	.flags		= (HWMOD_INIT_NO_IDLE | HWMOD_INIT_NO_RESET),
+	.main_clk	= "l3_gclk",
+	.prcm		= {
+		.omap4	= {
+			.clkctrl_offs	= AM33XX_CM_PER_OCMCRAM_CLKCTRL_OFFSET,
 			.modulemode	= MODULEMODE_SWCTRL,
 		},
 	},
@@ -3490,6 +3491,13 @@ static struct omap_hwmod_ocp_if am33xx_l3_main__aes0 = {
 	.user		= OCP_USER_MPU | OCP_USER_SDMA,
 };
 
+/* l3 main -> ocmc */
+static struct omap_hwmod_ocp_if am33xx_l3_main__ocmc = {
+	.master		= &am33xx_l3_main_hwmod,
+	.slave		= &am33xx_ocmcram_hwmod,
+	.user		= OCP_USER_MPU | OCP_USER_SDMA,
+};
+
 static struct omap_hwmod_ocp_if *am33xx_hwmod_ocp_ifs[] __initdata = {
 	&am33xx_l4_fw__emif_fw,
 	&am33xx_l3_main__emif,
@@ -3564,6 +3572,7 @@ static struct omap_hwmod_ocp_if *am33xx_hwmod_ocp_ifs[] __initdata = {
 	&am33xx_l3_main__tptc0,
 	&am33xx_l3_main__tptc1,
 	&am33xx_l3_main__tptc2,
+	&am33xx_l3_main__ocmc,
 	&am33xx_l3_s__usbss,
 	&am33xx_l4_hs__cpgmac0,
 	&am33xx_cpgmac0__mdio,
