@@ -57,6 +57,15 @@ static inline int mbox_empty(struct mailbox *mbox)
 {
 	return mbox->ops->empty(mbox);
 }
+static inline int mbox_fifo_needs_flush(struct mailbox *mbox)
+{
+	return mbox->ops->fifo_needs_flush(mbox);
+}
+static inline void mbox_fifo_readback(struct mailbox *mbox,
+				struct mailbox_msg *msg)
+{
+	mbox->ops->fifo_readback(mbox, msg);
+}
 
 /* Mailbox IRQ handle functions */
 static inline void ack_mbox_irq(struct mailbox *mbox, mailbox_irq_t irq)
@@ -109,6 +118,33 @@ out:
 	return ret;
 }
 EXPORT_SYMBOL(mailbox_msg_send);
+
+/*
+ * Flush the Rx FIFO by reading back the messages
+ * Since the normal expectation is that the Rx will do the
+ * reading, add a debug message to indicate if we really flush
+ *
+ * Returns the no. of messages read back
+ */
+int mailbox_rx_flush(struct mailbox *mbox)
+{
+	int ret = 0;
+	struct mailbox_msg readback_msg;
+
+	while (mbox_fifo_needs_flush(mbox)) {
+		mbox_fifo_readback(mbox, &readback_msg);
+		ret++;
+	}
+
+	if (ret) {
+		/* no more messages in the fifo. clear IRQ source. */
+		ack_mbox_irq(mbox, IRQ_RX);
+		pr_debug("Flushed %s Rx FIFO by reading back\n", mbox->name);
+	}
+
+	return ret;
+}
+EXPORT_SYMBOL(mailbox_rx_flush);
 
 #define TRANSFER_TIMEOUT 30000 /* Becomes ~3s timeout */
 
