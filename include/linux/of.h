@@ -667,4 +667,77 @@ static inline int of_resolve(struct device_node *resolve)
 
 #endif
 
+/**
+ * Overlay support
+ *
+ * Structures and function prototypes for use with DT overlays.
+ */
+/* actions taken during overlay */
+struct of_overlay_log_entry {
+	struct list_head node;
+	unsigned long action;
+	struct device_node *np;
+	struct property *prop;
+	struct property *old_prop;
+};
+
+/* node that must be acted upon */
+struct of_overlay_record_entry {
+	struct list_head node;
+	struct device_node *np;
+	struct platform_device *pdev;
+	int state;
+};
+
+struct of_overlay_info {
+	struct device_node *target;	/* in/out */
+	struct device_node *overlay;	/* in */
+	struct mutex lock;
+	struct list_head le_list;	/* log list */
+	struct list_head re_list;	/* record list */
+	struct notifier_block notifier;
+};
+
+#ifdef CONFIG_OF_OVERLAY
+
+int of_overlay(int count, struct of_overlay_info *ovinfo_tab);
+int of_overlay_revert(int count, struct of_overlay_info *ovinfo_tab);
+
+int of_fill_overlay_info(struct device_node *info_node,
+		struct of_overlay_info *ovinfo);
+int of_build_overlay_info(struct device_node *tree,
+		int *cntp, struct of_overlay_info **ovinfop);
+int of_free_overlay_info(int cnt, struct of_overlay_info *ovinfo);
+
+#else
+
+static inline int of_overlay(int count, struct of_overlay_info *ovinfo_tab)
+{
+	return -ENOTSUPP;
+}
+
+static inline int of_overlay_revert(int count, struct of_overlay_info *ovinfo_tab)
+{
+	return -ENOTSUPP;
+}
+
+static inline int of_fill_overlay_info(struct device_node *info_node,
+		struct of_overlay_info *ovinfo)
+{
+	return -ENOTSUPP;
+}
+
+static inline int of_build_overlay_info(struct device_node *tree,
+		int *cntp, struct of_overlay_info **ovinfop)
+{
+	return -ENOTSUPP;
+}
+
+int of_free_overlay_info(int cnt, struct of_overlay_info *ovinfo)
+{
+	return -ENOTSUPP;
+}
+
+#endif
+
 #endif /* _LINUX_OF_H */
