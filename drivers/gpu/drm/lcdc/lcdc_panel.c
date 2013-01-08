@@ -334,7 +334,7 @@ static struct lcdc_panel_info * of_get_panel_info(struct device_node *np)
 		return NULL;
 	}
 
-	info_np = of_find_node_by_name(np, "panel-info");
+	info_np = of_get_child_by_name(np, "panel-info");
 	if (!info_np) {
 		pr_err("%s: could not find panel-info node\n", __func__);
 		return NULL;
