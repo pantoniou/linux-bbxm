@@ -25,6 +25,8 @@
 
 #include "drm_fb_helper.h"
 
+#include <linux/of_gpio.h>
+
 static LIST_HEAD(module_list);
 
 void lcdc_module_init(struct lcdc_module *mod, const char *name,
@@ -155,7 +157,9 @@ static int lcdc_load(struct drm_device *dev, unsigned long flags)
 	struct platform_device *pdev = dev->platformdev;
 	struct lcdc_drm_private *priv;
 	struct resource *res;
-	int ret;
+	enum of_gpio_flags ofgpioflags;
+	unsigned long gpioflags;
+	int gpio, ret;
 
 	priv = kzalloc(sizeof(*priv), GFP_KERNEL);
 	if (!priv) {
@@ -191,6 +195,25 @@ static int lcdc_load(struct drm_device *dev, unsigned long flags)
 		dev_err(dev->dev, "failed to get display clock\n");
 		ret = -ENODEV;
 		goto fail;
+	}
+
+	/* some devices have a power gpio control */
+	gpio = of_get_named_gpio_flags(pdev->dev.of_node, "ti,power-gpio",
+                       0, &ofgpioflags);
+	if (IS_ERR_VALUE(gpio)) {
+		dev_info(&pdev->dev, "No power control GPIO\n");
+	} else {
+		gpioflags = GPIOF_DIR_OUT;
+		if (ofgpioflags & OF_GPIO_ACTIVE_LOW)
+			gpioflags |= GPIOF_INIT_LOW;
+		else
+			gpioflags |= GPIOF_INIT_HIGH;
+		ret = devm_gpio_request_one(&pdev->dev, gpio,
+		gpioflags, "lcdc_drv:PDN");
+		if (ret != 0) {
+			dev_err(&pdev->dev, "Failed to request power gpio\n");
+			goto fail;
+		}
 	}
 
 #ifdef CONFIG_CPU_FREQ
