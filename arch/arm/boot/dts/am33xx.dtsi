@@ -103,6 +103,7 @@
 			ti,edma-regions = <4>;
 			ti,edma-slots = <256>;
 			ti,edma-reserved-channels = <0  2
+						     8  4
 						     14 2
 						     26 6
 						     48 4
