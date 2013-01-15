@@ -325,7 +325,7 @@ static const struct tilcdc_module_ops tfp410_module_ops = {
 
 static struct of_device_id tfp410_of_match[];
 
-static int __devinit tfp410_probe(struct platform_device *pdev)
+static int tfp410_probe(struct platform_device *pdev)
 {
 	struct device_node *node = pdev->dev.of_node;
 	struct device_node *i2c_node;
@@ -391,7 +391,7 @@ fail:
 	return ret;
 }
 
-static int __devexit tfp410_remove(struct platform_device *pdev)
+static int tfp410_remove(struct platform_device *pdev)
 {
 	return 0;
 }

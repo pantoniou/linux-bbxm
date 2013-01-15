@@ -573,7 +573,7 @@ static const struct dev_pm_ops tilcdc_pm_ops = {
  * Platform driver:
  */
 
-static int __devinit tilcdc_pdev_probe(struct platform_device *pdev)
+static int tilcdc_pdev_probe(struct platform_device *pdev)
 {
 	/* bail out early if no DT data: */
 	if (!pdev->dev.of_node) {
@@ -584,7 +584,7 @@ static int __devinit tilcdc_pdev_probe(struct platform_device *pdev)
 	return drm_platform_init(&tilcdc_driver, pdev);
 }
 
-static int __devexit tilcdc_pdev_remove(struct platform_device *pdev)
+static int tilcdc_pdev_remove(struct platform_device *pdev)
 {
 	drm_platform_exit(&tilcdc_driver, pdev);
 
@@ -599,7 +599,7 @@ MODULE_DEVICE_TABLE(of, tilcdc_of_match);
 
 static struct platform_driver tilcdc_platform_driver = {
 	.probe      = tilcdc_pdev_probe,
-	.remove     = __devexit_p(tilcdc_pdev_remove),
+	.remove     = tilcdc_pdev_remove,
 	.driver     = {
 		.owner  = THIS_MODULE,
 		.name   = "tilcdc",
