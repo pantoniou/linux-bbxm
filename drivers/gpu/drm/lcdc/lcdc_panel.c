@@ -380,7 +380,7 @@ static struct lcdc_panel_info * of_get_panel_info(struct device_node *np)
 
 static struct of_device_id panel_of_match[];
 
-static int __devinit panel_probe(struct platform_device *pdev)
+static int panel_probe(struct platform_device *pdev)
 {
 	struct device_node *node = pdev->dev.of_node;
 	struct panel_module *panel_mod;
@@ -426,7 +426,7 @@ fail:
 	return ret;
 }
 
-static int __devexit panel_remove(struct platform_device *pdev)
+static int panel_remove(struct platform_device *pdev)
 {
 	return 0;
 }

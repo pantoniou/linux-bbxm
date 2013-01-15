@@ -298,7 +298,7 @@ static const struct lcdc_module_ops slave_module_ops = {
 
 static struct of_device_id slave_of_match[];
 
-static int __devinit slave_probe(struct platform_device *pdev)
+static int slave_probe(struct platform_device *pdev)
 {
 	struct device_node *node = pdev->dev.of_node;
 	struct device_node *i2c_node;
@@ -352,7 +352,7 @@ fail:
 	return ret;
 }
 
-static int __devexit slave_remove(struct platform_device *pdev)
+static int slave_remove(struct platform_device *pdev)
 {
 	return 0;
 }

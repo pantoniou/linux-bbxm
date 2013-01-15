@@ -572,7 +572,7 @@ static const struct dev_pm_ops lcdc_pm_ops = {
  * Platform driver:
  */
 
-static int __devinit lcdc_pdev_probe(struct platform_device *pdev)
+static int lcdc_pdev_probe(struct platform_device *pdev)
 {
 	/* bail out early if no DT data: */
 	if (!of_match_device(lcdc_of_match, &pdev->dev)) {
@@ -583,7 +583,7 @@ static int __devinit lcdc_pdev_probe(struct platform_device *pdev)
 	return drm_platform_init(&lcdc_driver, pdev);
 }
 
-static int __devexit lcdc_pdev_remove(struct platform_device *pdev)
+static int lcdc_pdev_remove(struct platform_device *pdev)
 {
 	drm_platform_exit(&lcdc_driver, pdev);
 
@@ -598,7 +598,7 @@ MODULE_DEVICE_TABLE(of, lcdc_of_match);
 
 static struct platform_driver lcdc_platform_driver = {
 	.probe      = lcdc_pdev_probe,
-	.remove     = __devexit_p(lcdc_pdev_remove),
+	.remove     = lcdc_pdev_remove,
 	.driver     = {
 		.owner  = THIS_MODULE,
 		.name   = "lcdc",
