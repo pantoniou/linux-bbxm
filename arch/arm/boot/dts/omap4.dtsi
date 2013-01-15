@@ -545,5 +545,13 @@
 			ram_bits = <12>;
 			ti,has_mailbox;
 		};
+
+		omap_control_usb@4a002300 {
+			compatible = "ti,omap-control-usb";
+			reg = <0x4a002300 0x4>,
+			      <0x4a00233c 0x4>;
+			reg-names = "control_dev_conf", "otghs_control";
+			ti,has_mailbox;
+		};
 	};
 };
