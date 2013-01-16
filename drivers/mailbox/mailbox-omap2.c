@@ -17,7 +17,7 @@
 #include <linux/io.h>
 #include <linux/pm_runtime.h>
 
-#include <plat/cpu.h>
+#include <mach-omap2/soc.h>
 
 #include "mailbox_internal.h"
 
