@@ -2456,7 +2456,7 @@ static int __init fsl_udc_probe(struct platform_device *pdev)
 
 #ifdef CONFIG_USB_OTG
 	if (pdata->operating_mode == FSL_USB2_DR_OTG) {
-		udc_controller->transceiver = usb_get_phy(USB_PHY_TYPE_USB2);
+		udc_controller->transceiver = usb_get_phy(&pdev->dev, 0);
 		if (IS_ERR_OR_NULL(udc_controller->transceiver)) {
 			ERR("Can't find OTG driver!\n");
 			ret = -ENODEV;

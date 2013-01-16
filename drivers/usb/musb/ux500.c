@@ -58,7 +58,7 @@ static irqreturn_t ux500_musb_interrupt(int irq, void *__hci)
 
 static int ux500_musb_init(struct musb *musb)
 {
-	musb->xceiv = usb_get_phy(USB_PHY_TYPE_USB2);
+	musb->xceiv = usb_get_phy(musb->controller, 0);
 	if (IS_ERR_OR_NULL(musb->xceiv)) {
 		pr_err("HS USB OTG: no transceiver configured\n");
 		return -ENODEV;

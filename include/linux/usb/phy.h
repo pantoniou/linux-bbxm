@@ -123,7 +123,7 @@ struct usb_phy_bind {
 };
 
 /* for board-specific init logic */
-extern int usb_add_phy(struct usb_phy *, enum usb_phy_type type);
+extern int usb_add_phy(struct usb_phy *);
 extern void usb_remove_phy(struct usb_phy *);
 
 /* helpers for direct access thru low-level io interface */
@@ -161,21 +161,19 @@ usb_phy_shutdown(struct usb_phy *x)
 
 /* for usb host and peripheral controller drivers */
 #ifdef CONFIG_USB_OTG_UTILS
-extern struct usb_phy *usb_get_phy(enum usb_phy_type type);
-extern struct usb_phy *devm_usb_get_phy(struct device *dev,
-	enum usb_phy_type type);
+extern struct usb_phy *usb_get_phy(struct device *dev, u8 index);
+extern struct usb_phy *devm_usb_get_phy(struct device *dev, u8 index);
 extern void usb_put_phy(struct usb_phy *);
 extern void devm_usb_put_phy(struct device *dev, struct usb_phy *x);
 extern struct usb_phy_bind *usb_bind_phy(const char *dev_name, u8 index,
 				const char *phy_dev_name);
 #else
-static inline struct usb_phy *usb_get_phy(enum usb_phy_type type)
+static inline struct usb_phy *usb_get_phy(struct device *dev, u8 index)
 {
 	return NULL;
 }
 
-static inline struct usb_phy *devm_usb_get_phy(struct device *dev,
-	enum usb_phy_type type)
+static inline struct usb_phy *devm_usb_get_phy(struct device *dev, u8 index)
 {
 	return NULL;
 }

@@ -118,12 +118,13 @@ static int nop_usb_xceiv_probe(struct platform_device *pdev)
 	nop->phy.label		= "nop-xceiv";
 	nop->phy.set_suspend	= nop_set_suspend;
 	nop->phy.state		= OTG_STATE_UNDEFINED;
+	nop->phy.type		= type;
 
 	nop->phy.otg->phy		= &nop->phy;
 	nop->phy.otg->set_host		= nop_set_host;
 	nop->phy.otg->set_peripheral	= nop_set_peripheral;
 
-	err = usb_add_phy(&nop->phy, type);
+	err = usb_add_phy(&nop->phy);
 	if (err) {
 		dev_err(&pdev->dev, "can't register transceiver, err: %d\n",
 			err);

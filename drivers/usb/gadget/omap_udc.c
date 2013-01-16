@@ -2833,7 +2833,7 @@ static int omap_udc_probe(struct platform_device *pdev)
 		 * use it.  Except for OTG, we don't _need_ to talk to one;
 		 * but not having one probably means no VBUS detection.
 		 */
-		xceiv = usb_get_phy(USB_PHY_TYPE_USB2);
+		xceiv = usb_get_phy(&pdev->dev, 0);
 		if (!IS_ERR_OR_NULL(xceiv))
 			type = xceiv->label;
 		else if (config->otg) {

@@ -181,11 +181,12 @@ static int rcar_usb_phy_probe(struct platform_device *pdev)
 	priv->counter		= 0;
 	priv->phy.dev		= dev;
 	priv->phy.label		= dev_name(dev);
+	priv->phy.type		= USB_PHY_TYPE_USB2;
 	priv->phy.init		= rcar_usb_phy_init;
 	priv->phy.shutdown	= rcar_usb_phy_shutdown;
 	spin_lock_init(&priv->lock);
 
-	ret = usb_add_phy(&priv->phy, USB_PHY_TYPE_USB2);
+	ret = usb_add_phy(&priv->phy);
 	if (ret < 0) {
 		dev_err(dev, "usb phy addition error\n");
 		return ret;

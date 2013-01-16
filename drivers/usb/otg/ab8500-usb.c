@@ -502,6 +502,7 @@ static int ab8500_usb_probe(struct platform_device *pdev)
 	ab->phy.set_suspend	= ab8500_usb_set_suspend;
 	ab->phy.set_power	= ab8500_usb_set_power;
 	ab->phy.state		= OTG_STATE_UNDEFINED;
+	ab->phy.type		= USB_PHY_TYPE_USB2;
 
 	otg->phy		= &ab->phy;
 	otg->set_host		= ab8500_usb_set_host;
@@ -529,7 +530,7 @@ static int ab8500_usb_probe(struct platform_device *pdev)
 	if (err < 0)
 		goto fail0;
 
-	err = usb_add_phy(&ab->phy, USB_PHY_TYPE_USB2);
+	err = usb_add_phy(&ab->phy);
 	if (err) {
 		dev_err(&pdev->dev, "Can't register transceiver\n");
 		goto fail1;

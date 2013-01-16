@@ -320,7 +320,7 @@ static struct platform_device *marzen_late_devices[] __initdata = {
 void __init marzen_init_late(void)
 {
 	/* get usb phy */
-	phy = usb_get_phy(USB_PHY_TYPE_USB2);
+	phy = usb_get_phy(&ehci0_device.dev, 0);
 
 	shmobile_init_late();
 	platform_add_devices(marzen_late_devices,

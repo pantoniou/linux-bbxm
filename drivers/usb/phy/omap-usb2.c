@@ -29,6 +29,7 @@
 #include <linux/delay.h>
 #include <linux/usb/omap_control_usb.h>
 
+static struct omap_usb	*phy;
 /**
  * omap_usb2_set_comparator - links the comparator present in the sytem with
  *	this phy
@@ -41,13 +42,9 @@
  */
 int omap_usb2_set_comparator(struct phy_companion *comparator)
 {
-	struct omap_usb	*phy;
-	struct usb_phy	*x = usb_get_phy(USB_PHY_TYPE_USB2);
-
-	if (IS_ERR(x))
+	if (!phy)
 		return -ENODEV;
 
-	phy = phy_to_omapusb(x);
 	phy->comparator = comparator;
 	return 0;
 }
@@ -121,7 +118,6 @@ static int omap_usb2_suspend(struct usb_phy *x, int suspend)
 
 static int omap_usb2_probe(struct platform_device *pdev)
 {
-	struct omap_usb			*phy;
 	struct usb_otg			*otg;
 	struct resource			*res;
 
@@ -141,6 +137,7 @@ static int omap_usb2_probe(struct platform_device *pdev)
 
 	phy->phy.dev		= phy->dev;
 	phy->phy.label		= "omap-usb2";
+	phy->phy.type		= USB_PHY_TYPE_USB2;
 	phy->phy.set_suspend	= omap_usb2_suspend;
 	phy->phy.otg		= otg;
 
@@ -168,7 +165,7 @@ static int omap_usb2_probe(struct platform_device *pdev)
 	}
 	clk_prepare(phy->wkupclk);
 
-	usb_add_phy(&phy->phy, USB_PHY_TYPE_USB2);
+	usb_add_phy(&phy->phy);
 
 	platform_set_drvdata(pdev, phy);
 

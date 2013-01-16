@@ -810,6 +810,7 @@ static int fsl_otg_conf(struct platform_device *pdev)
 	/* initialize the otg structure */
 	fsl_otg_tc->phy.label = DRIVER_DESC;
 	fsl_otg_tc->phy.set_power = fsl_otg_set_power;
+	fsl_otg_tc->phy.type = USB_PHY_TYPE_USB2;
 
 	fsl_otg_tc->phy.otg->phy = &fsl_otg_tc->phy;
 	fsl_otg_tc->phy.otg->set_host = fsl_otg_set_host;
@@ -820,7 +821,7 @@ static int fsl_otg_conf(struct platform_device *pdev)
 	fsl_otg_dev = fsl_otg_tc;
 
 	/* Store the otg transceiver */
-	status = usb_add_phy(&fsl_otg_tc->phy, USB_PHY_TYPE_USB2);
+	status = usb_add_phy(&fsl_otg_tc->phy);
 	if (status) {
 		pr_warn(FSL_OTG_NAME ": unable to register OTG transceiver.\n");
 		goto err;
@@ -838,7 +839,7 @@ err:
 int usb_otg_start(struct platform_device *pdev)
 {
 	struct fsl_otg *p_otg;
-	struct usb_phy *otg_trans = usb_get_phy(USB_PHY_TYPE_USB2);
+	struct usb_phy *otg_trans = usb_get_phy(&pdev->dev, 0);
 	struct otg_fsm *fsm;
 	int status;
 	struct resource *res;

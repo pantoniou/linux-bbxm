@@ -1587,6 +1587,7 @@ isp1301_probe(struct i2c_client *i2c, const struct i2c_device_id *id)
 	isp->phy.dev = &i2c->dev;
 	isp->phy.label = DRIVER_NAME;
 	isp->phy.set_power = isp1301_set_power,
+	isp->phy.type = USB_PHY_TYPE_USB2,
 
 	isp->phy.otg->phy = &isp->phy;
 	isp->phy.otg->set_host = isp1301_set_host,
@@ -1610,7 +1611,7 @@ isp1301_probe(struct i2c_client *i2c, const struct i2c_device_id *id)
 	dev_dbg(&i2c->dev, "scheduled timer, %d min\n", TIMER_MINUTES);
 #endif
 
-	status = usb_add_phy(&isp->phy, USB_PHY_TYPE_USB2);
+	status = usb_add_phy(&isp->phy);
 	if (status < 0)
 		dev_err(&i2c->dev, "can't register transceiver, %d\n",
 			status);

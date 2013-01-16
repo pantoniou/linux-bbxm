@@ -298,10 +298,11 @@ static int mv_u3d_phy_probe(struct platform_device *pdev)
 	mv_u3d_phy->base		= phy_base;
 	mv_u3d_phy->phy.dev		= mv_u3d_phy->dev;
 	mv_u3d_phy->phy.label		= "mv-u3d-phy";
+	mv_u3d_phy->phy.type		= USB_PHY_TYPE_USB3;
 	mv_u3d_phy->phy.init		= mv_u3d_phy_init;
 	mv_u3d_phy->phy.shutdown	= mv_u3d_phy_shutdown;
 
-	ret = usb_add_phy(&mv_u3d_phy->phy, USB_PHY_TYPE_USB3);
+	ret = usb_add_phy(&mv_u3d_phy->phy);
 	if (ret)
 		goto err;
 

@@ -264,6 +264,7 @@ static int __init gpio_vbus_probe(struct platform_device *pdev)
 	gpio_vbus->phy.set_power = gpio_vbus_set_power;
 	gpio_vbus->phy.set_suspend = gpio_vbus_set_suspend;
 	gpio_vbus->phy.state = OTG_STATE_UNDEFINED;
+	gpio_vbus->phy.type = USB_PHY_TYPE_USB2;
 
 	gpio_vbus->phy.otg->phy = &gpio_vbus->phy;
 	gpio_vbus->phy.otg->set_peripheral = gpio_vbus_set_peripheral;
@@ -320,7 +321,7 @@ static int __init gpio_vbus_probe(struct platform_device *pdev)
 	}
 
 	/* only active when a gadget is registered */
-	err = usb_add_phy(&gpio_vbus->phy, USB_PHY_TYPE_USB2);
+	err = usb_add_phy(&gpio_vbus->phy);
 	if (err) {
 		dev_err(&pdev->dev, "can't register transceiver, err: %d\n",
 			err);

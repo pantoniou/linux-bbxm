@@ -316,7 +316,7 @@ static int pda_power_probe(struct platform_device *pdev)
 	}
 
 #ifdef CONFIG_USB_OTG_UTILS
-	transceiver = usb_get_phy(USB_PHY_TYPE_USB2);
+	transceiver = usb_get_phy(&pdev->dev, 0);
 	if (!IS_ERR_OR_NULL(transceiver)) {
 		if (!pdata->is_usb_online)
 			pdata->is_usb_online = otg_is_usb_online;

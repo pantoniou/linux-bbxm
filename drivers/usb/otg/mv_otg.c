@@ -755,6 +755,7 @@ static int mv_otg_probe(struct platform_device *pdev)
 	mvotg->phy.otg = otg;
 	mvotg->phy.label = driver_name;
 	mvotg->phy.state = OTG_STATE_UNDEFINED;
+	mvotg->phy.type = USB_PHY_TYPE_USB2;
 
 	otg->phy = &mvotg->phy;
 	otg->set_host = mv_otg_set_host;
@@ -853,7 +854,7 @@ static int mv_otg_probe(struct platform_device *pdev)
 		goto err_disable_clk;
 	}
 
-	retval = usb_add_phy(&mvotg->phy, USB_PHY_TYPE_USB2);
+	retval = usb_add_phy(&mvotg->phy);
 	if (retval < 0) {
 		dev_err(&pdev->dev, "can't register transceiver, %d\n",
 			retval);

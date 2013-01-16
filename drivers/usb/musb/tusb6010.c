@@ -1067,7 +1067,7 @@ static int tusb_musb_init(struct musb *musb)
 	int			ret;
 
 	usb_nop_xceiv_register();
-	musb->xceiv = usb_get_phy(USB_PHY_TYPE_USB2);
+	musb->xceiv = usb_get_phy(musb->controller, 0);
 	if (IS_ERR_OR_NULL(musb->xceiv))
 		return -ENODEV;
 

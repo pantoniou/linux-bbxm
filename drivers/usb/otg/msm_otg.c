@@ -1548,6 +1548,7 @@ static int __init msm_otg_probe(struct platform_device *pdev)
 
 	phy->init = msm_otg_reset;
 	phy->set_power = msm_otg_set_power;
+	phy->phy_type = USB_PHY_TYPE_USB2;
 
 	phy->io_ops = &msm_otg_io_ops;
 
@@ -1555,7 +1556,7 @@ static int __init msm_otg_probe(struct platform_device *pdev)
 	phy->otg->set_host = msm_otg_set_host;
 	phy->otg->set_peripheral = msm_otg_set_peripheral;
 
-	ret = usb_add_phy(&motg->phy, USB_PHY_TYPE_USB2);
+	ret = usb_add_phy(&motg->phy);
 	if (ret) {
 		dev_err(&pdev->dev, "usb_add_phy failed\n");
 		goto free_irq;

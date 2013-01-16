@@ -420,13 +420,13 @@ static int dwc3_probe(struct platform_device *pdev)
 		return -ENOMEM;
 	}
 
-	dwc->usb2_phy = devm_usb_get_phy(dev, USB_PHY_TYPE_USB2);
+	dwc->usb2_phy = devm_usb_get_phy(dev, 0);
 	if (IS_ERR_OR_NULL(dwc->usb2_phy)) {
 		dev_err(dev, "no usb2 phy configured\n");
 		return -EPROBE_DEFER;
 	}
 
-	dwc->usb3_phy = devm_usb_get_phy(dev, USB_PHY_TYPE_USB3);
+	dwc->usb3_phy = devm_usb_get_phy(dev, 1);
 	if (IS_ERR_OR_NULL(dwc->usb3_phy)) {
 		dev_err(dev, "no usb3 phy configured\n");
 		return -EPROBE_DEFER;

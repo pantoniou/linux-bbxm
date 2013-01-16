@@ -21,16 +21,14 @@ static LIST_HEAD(phy_list);
 static LIST_HEAD(phy_bind_list);
 static DEFINE_SPINLOCK(phy_lock);
 
-static struct usb_phy *__usb_find_phy(struct list_head *list,
-	enum usb_phy_type type)
+static struct usb_phy *__usb_find_phy(struct device *dev, u8 index)
 {
-	struct usb_phy  *phy = NULL;
+	struct usb_phy_bind *phy_bind = NULL;
 
-	list_for_each_entry(phy, list, head) {
-		if (phy->type != type)
-			continue;
-
-		return phy;
+	list_for_each_entry(phy_bind, &phy_bind_list, list) {
+		if (!(strcmp(phy_bind->dev_name, dev_name(dev))) &&
+				phy_bind->index == index)
+			return phy_bind->phy;
 	}
 
 	return ERR_PTR(-ENODEV);
@@ -51,7 +49,7 @@ static int devm_usb_phy_match(struct device *dev, void *res, void *match_data)
 /**
  * devm_usb_get_phy - find the USB PHY
  * @dev - device that requests this phy
- * @type - the type of the phy the controller requires
+ * @index - the index of the phy
  *
  * Gets the phy using usb_get_phy(), and associates a device with it using
  * devres. On driver detach, release function is invoked on the devres data,
@@ -59,7 +57,7 @@ static int devm_usb_phy_match(struct device *dev, void *res, void *match_data)
  *
  * For use by USB host and peripheral drivers.
  */
-struct usb_phy *devm_usb_get_phy(struct device *dev, enum usb_phy_type type)
+struct usb_phy *devm_usb_get_phy(struct device *dev, u8 index)
 {
 	struct usb_phy **ptr, *phy;
 
@@ -67,7 +65,7 @@ struct usb_phy *devm_usb_get_phy(struct device *dev, enum usb_phy_type type)
 	if (!ptr)
 		return NULL;
 
-	phy = usb_get_phy(type);
+	phy = usb_get_phy(dev, index);
 	if (!IS_ERR(phy)) {
 		*ptr = phy;
 		devres_add(dev, ptr);
@@ -80,7 +78,8 @@ EXPORT_SYMBOL(devm_usb_get_phy);
 
 /**
  * usb_get_phy - find the USB PHY
- * @type - the type of the phy the controller requires
+ * @dev - device that requests this phy
+ * @index - the index of the phy
  *
  * Returns the phy driver, after getting a refcount to it; or
  * -ENODEV if there is no such phy.  The caller is responsible for
@@ -88,17 +87,16 @@ EXPORT_SYMBOL(devm_usb_get_phy);
  *
  * For use by USB host and peripheral drivers.
  */
-struct usb_phy *usb_get_phy(enum usb_phy_type type)
+struct usb_phy *usb_get_phy(struct device *dev, u8 index)
 {
 	struct usb_phy	*phy = NULL;
 	unsigned long	flags;
 
 	spin_lock_irqsave(&phy_lock, flags);
 
-	phy = __usb_find_phy(&phy_list, type);
+	phy = __usb_find_phy(dev, index);
 	if (IS_ERR(phy)) {
-		pr_err("unable to find transceiver of type %s\n",
-			usb_phy_type_string(type));
+		pr_err("unable to find phy\n");
 		goto err0;
 	}
 
@@ -148,40 +146,30 @@ EXPORT_SYMBOL(usb_put_phy);
 /**
  * usb_add_phy - declare the USB PHY
  * @x: the USB phy to be used; or NULL
- * @type - the type of this PHY
  *
  * This call is exclusively for use by phy drivers, which
  * coordinate the activities of drivers for host and peripheral
  * controllers, and in some cases for VBUS current regulation.
  */
-int usb_add_phy(struct usb_phy *x, enum usb_phy_type type)
+int usb_add_phy(struct usb_phy *x)
 {
-	int		ret = 0;
-	unsigned long	flags;
-	struct usb_phy	*phy;
+	struct usb_phy_bind *phy_bind;
+	unsigned long flags;
 
-	if (x->type != USB_PHY_TYPE_UNDEFINED) {
-		dev_err(x->dev, "not accepting initialized PHY %s\n", x->label);
+	if (!x->dev) {
+		dev_err(x->dev, "no device provided for PHY\n");
 		return -EINVAL;
 	}
 
 	spin_lock_irqsave(&phy_lock, flags);
+	list_for_each_entry(phy_bind, &phy_bind_list, list)
+		if (!(strcmp(phy_bind->phy_dev_name, dev_name(x->dev))))
+			phy_bind->phy = x;
 
-	list_for_each_entry(phy, &phy_list, head) {
-		if (phy->type == type) {
-			ret = -EBUSY;
-			dev_err(x->dev, "transceiver type %s already exists\n",
-						usb_phy_type_string(type));
-			goto out;
-		}
-	}
-
-	x->type = type;
 	list_add_tail(&x->head, &phy_list);
-
-out:
 	spin_unlock_irqrestore(&phy_lock, flags);
-	return ret;
+
+	return 0;
 }
 EXPORT_SYMBOL(usb_add_phy);
 
@@ -194,10 +182,15 @@ EXPORT_SYMBOL(usb_add_phy);
 void usb_remove_phy(struct usb_phy *x)
 {
 	unsigned long	flags;
+	struct usb_phy_bind *phy_bind;
 
 	spin_lock_irqsave(&phy_lock, flags);
-	if (x)
+	if (x) {
+		list_for_each_entry(phy_bind, &phy_bind_list, list)
+			if (phy_bind->phy == x)
+				phy_bind->phy = NULL;
 		list_del(&x->head);
+	}
 	spin_unlock_irqrestore(&phy_lock, flags);
 }
 EXPORT_SYMBOL(usb_remove_phy);
