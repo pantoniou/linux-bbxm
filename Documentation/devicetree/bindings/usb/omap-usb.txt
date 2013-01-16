@@ -18,6 +18,7 @@ OMAP MUSB GLUE
    represents PERIPHERAL.
  - power : Should be "50". This signifies the controller can supply upto
    100mA when operating in host mode.
+ - usb_phy : the phandle for the PHY device
 
 SOC specific device node entry
 usb_otg_hs: usb_otg_hs@4a0ab000 {
@@ -27,6 +28,7 @@ usb_otg_hs: usb_otg_hs@4a0ab000 {
 	multipoint = <1>;
 	num_eps = <16>;
 	ram_bits = <12>;
+	usb_phy = <&phy>;
 };
 
 Board specific device node entry
