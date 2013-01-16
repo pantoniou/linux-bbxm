@@ -1,3 +1,5 @@
+ccflags-$(CONFIG_ARCH_OMAP) := -I$(srctree)/arch/arm
+
 obj-$(CONFIG_MAILBOX) += mailbox.o
 
 obj-$(CONFIG_OMAP1_MBOX)       += mailbox-omap1.o
