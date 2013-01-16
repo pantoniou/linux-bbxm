@@ -141,7 +141,8 @@ fw-shipped-$(CONFIG_CAPE_BEAGLEBONE) += \
 	cape-bone-2g-emmc1.dtbo \
 	cape-bone-dvi-00A0.dtbo cape-bone-dvi-00A1.dtbo \
 		cape-bone-dvi-00A2.dtbo \
-	cape-bone-lcd3-00A0.dtbo
+	cape-bone-lcd3-00A0.dtbo \
+	cape-bone-lcd3-00A2.dtbo
 
 # the geiger cape
 fw-shipped-$(CONFIG_CAPE_BEAGLEBONE_GEIGER) += \
