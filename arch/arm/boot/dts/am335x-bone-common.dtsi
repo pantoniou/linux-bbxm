@@ -77,7 +77,7 @@
 			led1 {
 				label = "beaglebone:green:usr1";
 				gpios = <&gpio2 22 0>;
-				linux,default-trigger = "mmc0";
+				linux,default-trigger = "mmc1";
 				default-state = "off";
 			};
 
@@ -92,7 +92,7 @@
 				label = "beaglebone:green:usr3";
 				gpios = <&gpio2 24 0>;
 				default-state = "off";
-				linux,default-trigger = "mmc1";
+				linux,default-trigger = "mmc2";
 			};
 		};
 
