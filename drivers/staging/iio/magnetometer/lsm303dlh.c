@@ -14,8 +14,8 @@
 #include <linux/mutex.h>
 #include <linux/regulator/consumer.h>
 
-#include "../iio.h"
-#include "../sysfs.h"
+#include "linux/iio/iio.h"
+#include "linux/iio/sysfs.h"
 
 /* configuration register A */
 #define CRA_REG_M	0x00
@@ -690,7 +690,7 @@ static int lsm303dlh_m_probe(struct i2c_client *client,
 	struct iio_dev *indio_dev;
 	int err = 0;
 
-	indio_dev = iio_allocate_device(sizeof(*data));
+	indio_dev = iio_device_alloc(sizeof(*data));
 	if (indio_dev == NULL) {
 		dev_err(&client->dev, "memory allocation failed\n");
 		err = -ENOMEM;
@@ -740,7 +740,7 @@ static int lsm303dlh_m_probe(struct i2c_client *client,
 	return 0;
 
 exit2:
-	iio_free_device(indio_dev);
+	iio_device_free(indio_dev);
 	regulator_disable(data->regulator);
 	regulator_put(data->regulator);
 exit1:
@@ -749,7 +749,7 @@ exit:
 	return err;
 }
 
-static int __devexit lsm303dlh_m_remove(struct i2c_client *client)
+static int lsm303dlh_m_remove(struct i2c_client *client)
 {
 	struct iio_dev *indio_dev = i2c_get_clientdata(client);
 	struct lsm303dlh_m_data *data = iio_priv(indio_dev);
@@ -773,7 +773,7 @@ static int __devexit lsm303dlh_m_remove(struct i2c_client *client)
 
 	iio_device_unregister(indio_dev);
 	/* put the device to sleep mode */
-	iio_free_device(indio_dev);
+	iio_device_free(indio_dev);
 
 	return 0;
 }
