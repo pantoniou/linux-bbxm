@@ -15,6 +15,9 @@
  * kind, whether express or implied.
  */
 
+#define DEBUG
+#define VEBOSE_DEBUG
+
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/kernel.h>
@@ -252,6 +255,9 @@ static int omap_hsmmc_set_power(struct device *dev, int slot, int power_on,
 		platform_get_drvdata(to_platform_device(dev));
 	int ret = 0;
 
+	dev_dbg(host->dev, "%s slot=%d, power_on=%d, vdd=%d\n",
+			__func__, slot, power_on, vdd);
+
 	/*
 	 * If we don't see a Vcc regulator, assume it's a fixed
 	 * voltage always-on regulator.
@@ -313,6 +319,8 @@ static int omap_hsmmc_reg_get(struct omap_hsmmc_host *host)
 	struct regulator *reg;
 	int ocr_value = 0;
 
+	dev_dbg(host->dev, "%s\n", __func__);
+
 	reg = regulator_get(host->dev, "vmmc");
 	if (IS_ERR(reg)) {
 		dev_err(host->dev, "vmmc regulator missing\n");
@@ -363,6 +371,8 @@ static int omap_hsmmc_reg_get(struct omap_hsmmc_host *host)
 
 static void omap_hsmmc_reg_put(struct omap_hsmmc_host *host)
 {
+	dev_dbg(host->dev, "%s\n", __func__);
+
 	regulator_put(host->vcc);
 	regulator_put(host->vcc_aux);
 	mmc_slot(host).set_power = NULL;
@@ -468,6 +478,8 @@ static void omap_hsmmc_gpio_free(struct omap_mmc_platform_data *pdata)
  */
 static void omap_hsmmc_start_clock(struct omap_hsmmc_host *host)
 {
+	dev_dbg(host->dev, "%s\n", __func__);
+
 	OMAP_HSMMC_WRITE(host->base, SYSCTL,
 		OMAP_HSMMC_READ(host->base, SYSCTL) | CEN);
 }
@@ -477,6 +489,8 @@ static void omap_hsmmc_start_clock(struct omap_hsmmc_host *host)
  */
 static void omap_hsmmc_stop_clock(struct omap_hsmmc_host *host)
 {
+	dev_dbg(host->dev, "%s\n", __func__);
+
 	OMAP_HSMMC_WRITE(host->base, SYSCTL,
 		OMAP_HSMMC_READ(host->base, SYSCTL) & ~CEN);
 	if ((OMAP_HSMMC_READ(host->base, SYSCTL) & CEN) != 0x0)
@@ -487,6 +501,8 @@ static void omap_hsmmc_enable_irq(struct omap_hsmmc_host *host,
 				  struct mmc_command *cmd)
 {
 	unsigned int irq_mask;
+
+	dev_dbg(host->dev, "%s\n", __func__);
 
 	if (host->use_dma)
 		irq_mask = INT_EN_MASK & ~(BRR_EN | BWR_EN);
@@ -504,6 +520,8 @@ static void omap_hsmmc_enable_irq(struct omap_hsmmc_host *host,
 
 static void omap_hsmmc_disable_irq(struct omap_hsmmc_host *host)
 {
+	dev_dbg(host->dev, "%s\n", __func__);
+
 	OMAP_HSMMC_WRITE(host->base, ISE, 0);
 	OMAP_HSMMC_WRITE(host->base, IE, 0);
 	OMAP_HSMMC_WRITE(host->base, STAT, STAT_CLEAR);
@@ -529,6 +547,8 @@ static void omap_hsmmc_set_clock(struct omap_hsmmc_host *host)
 	unsigned long regval;
 	unsigned long timeout;
 	unsigned long clkdiv;
+
+	dev_dbg(host->dev, "%s clock=%uHz\n", __func__, ios->clock);
 
 	dev_vdbg(mmc_dev(host->mmc), "Set clock to %uHz\n", ios->clock);
 
@@ -576,6 +596,8 @@ static void omap_hsmmc_set_bus_width(struct omap_hsmmc_host *host)
 {
 	struct mmc_ios *ios = &host->mmc->ios;
 	u32 con;
+
+	dev_dbg(host->dev, "%s\n", __func__);
 
 	con = OMAP_HSMMC_READ(host->base, CON);
 	if (ios->timing == MMC_TIMING_UHS_DDR50)
@@ -722,6 +744,8 @@ static void send_init_stream(struct omap_hsmmc_host *host)
 	int reg = 0;
 	unsigned long timeout;
 
+	dev_dbg(host->dev, "%s\n", __func__);
+
 	if (host->protect_card)
 		return;
 
@@ -789,8 +813,11 @@ omap_hsmmc_start_command(struct omap_hsmmc_host *host, struct mmc_command *cmd,
 {
 	int cmdreg = 0, resptype = 0, cmdtype = 0;
 
-	dev_vdbg(mmc_dev(host->mmc), "%s: CMD%d, argument 0x%08x\n",
-		mmc_hostname(host->mmc), cmd->opcode, cmd->arg);
+	dev_dbg(host->dev, "%s\n", __func__);
+
+	dev_vdbg(mmc_dev(host->mmc), "%s: CMD%d (%s), argument 0x%08x\n",
+		mmc_hostname(host->mmc), cmd->opcode,
+		mmc_opcode_txt(cmd->opcode), cmd->arg);
 	host->cmd = cmd;
 
 	omap_hsmmc_enable_irq(host, cmd);
@@ -836,6 +863,8 @@ omap_hsmmc_start_command(struct omap_hsmmc_host *host, struct mmc_command *cmd,
 static int
 omap_hsmmc_get_dma_dir(struct omap_hsmmc_host *host, struct mmc_data *data)
 {
+	dev_dbg(host->dev, "%s\n", __func__);
+
 	if (data->flags & MMC_DATA_WRITE)
 		return DMA_TO_DEVICE;
 	else
@@ -1056,8 +1085,10 @@ static void omap_hsmmc_do_irq(struct omap_hsmmc_host *host, int status)
 
 		if (status & (CTO_EN | CCRC_EN))
 			end_cmd = 1;
-		if (status & (CTO_EN | DTO_EN))
+		if (status & (CTO_EN | DTO_EN)) {
+			dev_dbg(mmc_dev(host->mmc), "returning ETIMEDOUT\n");
 			hsmmc_command_incomplete(host, -ETIMEDOUT, end_cmd);
+		}
 		else if (status & (CCRC_EN | DCRC_EN))
 			hsmmc_command_incomplete(host, -EILSEQ, end_cmd);
 

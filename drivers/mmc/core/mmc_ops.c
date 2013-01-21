@@ -476,7 +476,11 @@ EXPORT_SYMBOL_GPL(__mmc_switch);
 int mmc_switch(struct mmc_card *card, u8 set, u8 index, u8 value,
 		unsigned int timeout_ms)
 {
-	return __mmc_switch(card, set, index, value, timeout_ms, true);
+	int ret;
+
+	ret = __mmc_switch(card, set, index, value, timeout_ms, true);
+	WARN_ON(ret != 0);
+	return ret;
 }
 EXPORT_SYMBOL_GPL(mmc_switch);
 
@@ -617,10 +621,13 @@ int mmc_send_hpi_cmd(struct mmc_card *card, u32 *status)
 	}
 
 	opcode = card->ext_csd.hpi_cmd;
-	if (opcode == MMC_STOP_TRANSMISSION)
+	if (opcode == MMC_STOP_TRANSMISSION) {
 		cmd.flags = MMC_RSP_R1B | MMC_CMD_AC;
-	else if (opcode == MMC_SEND_STATUS)
+	} else if (opcode == MMC_SEND_STATUS) {
 		cmd.flags = MMC_RSP_R1 | MMC_CMD_AC;
+	}
+	pr_info("%s: %s: Sending %s\n", mmc_hostname(card->host), __func__,
+			mmc_opcode_txt(opcode));
 
 	cmd.opcode = opcode;
 	cmd.arg = card->rca << 16 | 1;

@@ -79,6 +79,61 @@ MODULE_PARM_DESC(
 	removable,
 	"MMC/SD cards are removable and may be removed during suspend");
 
+
+#define MMC_OP_TXT(_x)	[MMC_ ## _x ] = "MMC_" # _x
+
+static const char *opcode_txt[] = {
+	MMC_OP_TXT(GO_IDLE_STATE),
+	MMC_OP_TXT(SEND_OP_COND),
+	MMC_OP_TXT(ALL_SEND_CID),
+	MMC_OP_TXT(SET_RELATIVE_ADDR),
+	MMC_OP_TXT(SET_DSR),
+	MMC_OP_TXT(SLEEP_AWAKE),
+	MMC_OP_TXT(SWITCH),
+	MMC_OP_TXT(SELECT_CARD),
+	MMC_OP_TXT(SEND_EXT_CSD),
+	MMC_OP_TXT(SEND_CSD),
+	MMC_OP_TXT(SEND_CID),
+	MMC_OP_TXT(READ_DAT_UNTIL_STOP),
+	MMC_OP_TXT(STOP_TRANSMISSION),
+	MMC_OP_TXT(SEND_STATUS),
+	MMC_OP_TXT(BUS_TEST_R),
+	MMC_OP_TXT(GO_INACTIVE_STATE),
+	MMC_OP_TXT(BUS_TEST_W),
+	MMC_OP_TXT(SPI_READ_OCR),
+	MMC_OP_TXT(SPI_CRC_ON_OFF),
+	MMC_OP_TXT(SET_BLOCKLEN),
+	MMC_OP_TXT(READ_SINGLE_BLOCK),
+	MMC_OP_TXT(READ_MULTIPLE_BLOCK),
+	MMC_OP_TXT(SEND_TUNING_BLOCK),
+	MMC_OP_TXT(SEND_TUNING_BLOCK_HS200),
+	MMC_OP_TXT(WRITE_DAT_UNTIL_STOP),
+	MMC_OP_TXT(SET_BLOCK_COUNT),
+	MMC_OP_TXT(WRITE_BLOCK),
+	MMC_OP_TXT(WRITE_MULTIPLE_BLOCK),
+	MMC_OP_TXT(PROGRAM_CID),
+	MMC_OP_TXT(PROGRAM_CSD),
+	MMC_OP_TXT(SET_WRITE_PROT),
+	MMC_OP_TXT(CLR_WRITE_PROT),
+	MMC_OP_TXT(SEND_WRITE_PROT),
+	MMC_OP_TXT(ERASE_GROUP_START),
+	MMC_OP_TXT(ERASE_GROUP_END),
+	MMC_OP_TXT(ERASE),
+	MMC_OP_TXT(FAST_IO),
+	MMC_OP_TXT(GO_IRQ_STATE),
+	MMC_OP_TXT(LOCK_UNLOCK),
+	MMC_OP_TXT(APP_CMD),
+	MMC_OP_TXT(GEN_CMD)
+};
+
+const char *mmc_opcode_txt(int opcode)
+{
+	if ((unsigned int)opcode >= ARRAY_SIZE(opcode_txt))
+		return "*UNKNOWN*";
+	return opcode_txt[opcode];
+}
+
+
 /*
  * Internal function. Schedule delayed work in the MMC work queue.
  */
@@ -163,8 +218,10 @@ void mmc_request_done(struct mmc_host *host, struct mmc_request *mrq)
 
 		led_trigger_event(host->led, LED_OFF);
 
-		pr_debug("%s: req done (CMD%u): %d: %08x %08x %08x %08x\n",
-			mmc_hostname(host), cmd->opcode, err,
+		pr_debug("%s: req done (CMD%u - %s): %d: %08x %08x %08x %08x\n",
+			mmc_hostname(host),
+			cmd->opcode, mmc_opcode_txt(cmd->opcode),
+			err,
 			cmd->resp[0], cmd->resp[1],
 			cmd->resp[2], cmd->resp[3]);
 
@@ -175,8 +232,9 @@ void mmc_request_done(struct mmc_host *host, struct mmc_request *mrq)
 		}
 
 		if (mrq->stop) {
-			pr_debug("%s:     (CMD%u): %d: %08x %08x %08x %08x\n",
-				mmc_hostname(host), mrq->stop->opcode,
+			pr_debug("%s:     (CMD%u - %s): %d: %08x %08x %08x %08x\n",
+				mmc_hostname(host),
+				mrq->stop->opcode, mmc_opcode_txt(mrq->stop->opcode),
 				mrq->stop->error,
 				mrq->stop->resp[0], mrq->stop->resp[1],
 				mrq->stop->resp[2], mrq->stop->resp[3]);
@@ -200,13 +258,15 @@ mmc_start_request(struct mmc_host *host, struct mmc_request *mrq)
 #endif
 
 	if (mrq->sbc) {
-		pr_debug("<%s: starting CMD%u arg %08x flags %08x>\n",
-			 mmc_hostname(host), mrq->sbc->opcode,
+		pr_debug("<%s: starting CMD%u - %s arg %08x flags %08x>\n",
+			 mmc_hostname(host),
+			 mrq->sbc->opcode, mmc_opcode_txt(mrq->sbc->opcode),
 			 mrq->sbc->arg, mrq->sbc->flags);
 	}
 
-	pr_debug("%s: starting CMD%u arg %08x flags %08x\n",
-		 mmc_hostname(host), mrq->cmd->opcode,
+	pr_debug("%s: starting CMD%u - %s arg %08x flags %08x\n",
+		 mmc_hostname(host),
+		 mrq->cmd->opcode, mmc_opcode_txt(mrq->cmd->opcode),
 		 mrq->cmd->arg, mrq->cmd->flags);
 
 	if (mrq->data) {
@@ -219,8 +279,9 @@ mmc_start_request(struct mmc_host *host, struct mmc_request *mrq)
 	}
 
 	if (mrq->stop) {
-		pr_debug("%s:     CMD%u arg %08x flags %08x\n",
-			 mmc_hostname(host), mrq->stop->opcode,
+		pr_debug("%s:     CMD%u - %s arg %08x flags %08x\n",
+			 mmc_hostname(host),
+			 mrq->stop->opcode, mmc_opcode_txt(mrq->stop->opcode),
 			 mrq->stop->arg, mrq->stop->flags);
 	}
 
@@ -300,7 +361,7 @@ void mmc_start_bkops(struct mmc_card *card, bool from_exception)
 	}
 
 	err = __mmc_switch(card, EXT_CSD_CMD_SET_NORMAL,
-			EXT_CSD_BKOPS_START, 1, timeout, use_busy_signal);
+			EXT_CSD_BKOPS_START, 1, timeout + 1000000, use_busy_signal);
 	if (err) {
 		pr_warn("%s: Error %d starting bkops\n",
 			mmc_hostname(card->host), err);
@@ -350,8 +411,9 @@ static void mmc_wait_for_req_done(struct mmc_host *host,
 		    mmc_card_removed(host->card))
 			break;
 
-		pr_debug("%s: req failed (CMD%u): %d, retrying...\n",
-			 mmc_hostname(host), cmd->opcode, cmd->error);
+		pr_debug("%s: req failed (CMD%u - %s): %d, retrying...\n",
+			 mmc_hostname(host), cmd->opcode,
+			 mmc_opcode_txt(cmd->opcode), cmd->error);
 		cmd->retries--;
 		cmd->error = 0;
 		host->ops->request(host, mrq);
@@ -1236,8 +1298,10 @@ int mmc_set_signal_voltage(struct mmc_host *host, int signal_voltage, bool cmd11
 		cmd.flags = MMC_RSP_R1 | MMC_CMD_AC;
 
 		err = mmc_wait_for_cmd(host, &cmd, 0);
-		if (err)
+		if (err) {
+			WARN_ON(err != 0);
 			return err;
+		}
 
 		if (!mmc_host_is_spi(host) && (cmd.resp[0] & R1_ERROR))
 			return -EIO;
@@ -1947,6 +2011,7 @@ EXPORT_SYMBOL(mmc_calc_max_discard);
 int mmc_set_blocklen(struct mmc_card *card, unsigned int blocklen)
 {
 	struct mmc_command cmd = {0};
+	int ret;
 
 	if (mmc_card_blockaddr(card) || mmc_card_ddr_mode(card))
 		return 0;
@@ -1954,7 +2019,9 @@ int mmc_set_blocklen(struct mmc_card *card, unsigned int blocklen)
 	cmd.opcode = MMC_SET_BLOCKLEN;
 	cmd.arg = blocklen;
 	cmd.flags = MMC_RSP_SPI_R1 | MMC_RSP_R1 | MMC_CMD_AC;
-	return mmc_wait_for_cmd(card->host, &cmd, 5);
+	ret = mmc_wait_for_cmd(card->host, &cmd, 5);
+	WARN_ON(ret != 0);
+	return ret;
 }
 EXPORT_SYMBOL(mmc_set_blocklen);
 
@@ -1962,13 +2029,16 @@ int mmc_set_blockcount(struct mmc_card *card, unsigned int blockcount,
 			bool is_rel_write)
 {
 	struct mmc_command cmd = {0};
+	int ret;
 
 	cmd.opcode = MMC_SET_BLOCK_COUNT;
 	cmd.arg = blockcount & 0x0000FFFF;
 	if (is_rel_write)
 		cmd.arg |= 1 << 31;
 	cmd.flags = MMC_RSP_SPI_R1 | MMC_RSP_R1 | MMC_CMD_AC;
-	return mmc_wait_for_cmd(card->host, &cmd, 5);
+	ret = mmc_wait_for_cmd(card->host, &cmd, 5);
+	WARN_ON(ret != 0);
+	return ret;
 }
 EXPORT_SYMBOL(mmc_set_blockcount);
 
@@ -2026,6 +2096,7 @@ static int mmc_do_hw_reset(struct mmc_host *host, int check)
 		cmd.flags = MMC_RSP_SPI_R2 | MMC_RSP_R1 | MMC_CMD_AC;
 		err = mmc_wait_for_cmd(card->host, &cmd, 0);
 		if (!err) {
+			WARN_ON(err != 0);
 			mmc_host_clk_release(host);
 			return -ENOSYS;
 		}
@@ -2374,7 +2445,7 @@ int mmc_flush_cache(struct mmc_card *card)
 			(card->ext_csd.cache_size > 0) &&
 			(card->ext_csd.cache_ctrl & 1)) {
 		err = mmc_switch(card, EXT_CSD_CMD_SET_NORMAL,
-				EXT_CSD_FLUSH_CACHE, 1, 0);
+				EXT_CSD_FLUSH_CACHE, 1, 0 + 1000000);
 		if (err)
 			pr_err("%s: cache flush error %d\n",
 					mmc_hostname(card->host), err);
@@ -2407,7 +2478,7 @@ int mmc_cache_ctrl(struct mmc_host *host, u8 enable)
 		if (card->ext_csd.cache_ctrl ^ enable) {
 			timeout = enable ? card->ext_csd.generic_cmd6_time : 0;
 			err = mmc_switch(card, EXT_CSD_CMD_SET_NORMAL,
-					EXT_CSD_CACHE_CTRL, enable, timeout);
+					EXT_CSD_CACHE_CTRL, enable, timeout + 1000000);
 			if (err)
 				pr_err("%s: cache %s error %d\n",
 						mmc_hostname(card->host),

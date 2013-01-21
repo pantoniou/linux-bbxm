@@ -338,9 +338,17 @@
 };
 
 &mmc1 {
-	status = "okay";
+	// status = "okay";
+	status = "disabled";
 	vmmc-supply = <&ldo3_reg>;
 	ti,vcc-aux-disable-is-sleep;
+};
+
+&mmc2 {
+	// status = "okay";
+	vmmc-supply = <&ldo3_reg>;
+	ti,vcc-aux-disable-is-sleep;
+	ti,non-removable;
 };
 
 &edma {

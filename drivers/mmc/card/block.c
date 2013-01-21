@@ -799,6 +799,10 @@ static int mmc_blk_cmd_recovery(struct mmc_card *card, struct request *req,
 	 */
 	if (R1_CURRENT_STATE(status) == R1_STATE_DATA ||
 	    R1_CURRENT_STATE(status) == R1_STATE_RCV) {
+
+		pr_info("%s: %s: Sending %s\n", mmc_hostname(card->host), __func__,
+				mmc_opcode_txt(MMC_STOP_TRANSMISSION));
+
 		err = send_stop(card, &stop_status);
 		if (err)
 			pr_err("%s: error %d sending stop command\n",
