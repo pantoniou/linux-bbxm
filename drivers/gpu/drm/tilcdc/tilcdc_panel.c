@@ -371,8 +371,6 @@ static struct tilcdc_panel_info * of_get_panel_info(struct device_node *np)
 	info->tft_alt_mode      = of_property_read_bool(info_np, "tft-alt-mode");
 	info->stn_565_mode      = of_property_read_bool(info_np, "stn-565-mode");
 	info->mono_8bit_mode    = of_property_read_bool(info_np, "mono-8bit-mode");
-	info->invert_line_clock = of_property_read_bool(info_np, "invert-line-clock");
-	info->invert_frm_clock  = of_property_read_bool(info_np, "invert-frm-clock");
 	info->invert_pxl_clk    = of_property_read_bool(info_np, "invert-pxl-clk");
 
 	if (of_property_read_u32(info_np, "max-bpp", &info->max_bpp))
