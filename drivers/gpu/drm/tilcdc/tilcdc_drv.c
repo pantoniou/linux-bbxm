@@ -534,7 +534,7 @@ static struct drm_driver tilcdc_driver = {
  * Power management:
  */
 
-#if CONFIG_PM_SLEEP
+#if defined(CONFIG_PM_SLEEP)
 static int tilcdc_pm_suspend(struct device *dev)
 {
 	struct drm_device *ddev = dev_get_drvdata(dev);
