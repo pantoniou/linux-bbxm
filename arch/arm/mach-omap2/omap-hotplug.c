@@ -50,10 +50,12 @@ void __ref omap4_cpu_die(unsigned int cpu)
 
 
 	for (;;) {
+#if defined(CONFIG_SMP) && defined(CONFIG_PM)
 		/*
 		 * Enter into low power state
 		 */
 		omap4_mpuss_hotplug_cpu(cpu, PWRDM_FUNC_PWRST_OFF);
+#endif
 
 		if (omap_secure_apis_support())
 			boot_cpu = omap_read_auxcoreboot0();
