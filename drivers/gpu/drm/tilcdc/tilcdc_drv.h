@@ -65,6 +65,7 @@ struct tilcdc_drm_private {
 	 * measured in pixels
 	 */
 	uint32_t max_width;
+	int allow_non_rblank;	/* ATM we don't support non reduced blank modes */
 
 	/* register contents saved across suspend/resume: */
 	u32 saved_register[12];

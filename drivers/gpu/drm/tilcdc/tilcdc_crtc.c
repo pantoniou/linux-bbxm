@@ -456,6 +456,7 @@ int tilcdc_crtc_mode_valid(struct drm_crtc *crtc, struct drm_display_mode *mode)
 	struct tilcdc_drm_private *priv = crtc->dev->dev_private;
 	unsigned int bandwidth;
 	uint32_t hbp, hfp, hsw, vbp, vfp, vsw;
+	int rb;
 
 	/*
 	 * check to see if the width is within the range that
@@ -534,6 +535,16 @@ int tilcdc_crtc_mode_valid(struct drm_crtc *crtc, struct drm_display_mode *mode)
 	if (bandwidth > priv->max_bandwidth) {
 		DBG("Pruning mode: exceeds defined bandwidth limit");
 		return MODE_BAD;
+	}
+
+	if (priv->allow_non_rblank == 0) {
+		/* we only support reduced blanking modes */
+		rb = (mode->htotal - mode->hdisplay == 160) &&
+		       (mode->hsync_end - mode->hdisplay == 80) &&
+		       (mode->hsync_end - mode->hsync_start == 32) &&
+		       (mode->vsync_start - mode->vdisplay == 3);
+		if (!rb)
+			return MODE_BAD;
 	}
 
 	return MODE_OK;

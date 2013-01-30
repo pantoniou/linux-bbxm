@@ -256,6 +256,9 @@ static int tilcdc_load(struct drm_device *dev, unsigned long flags)
 
 	DBG("Maximum Pixel Clock Value %dKHz", priv->max_pixelclock);
 
+	priv->allow_non_rblank = of_property_read_bool(node,
+			"ti,allow-non-reduced-blanking-modes");
+
 	pm_runtime_enable(dev->dev);
 
 	/* Determine LCD IP Version */
