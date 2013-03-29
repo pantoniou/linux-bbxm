@@ -150,7 +150,8 @@ fw-shipped-$(CONFIG_CAPE_BEAGLEBONE) += \
 	BB-BONE-LCD7-01-00A2.dtbo \
 	cape-bone-iio-00A0.dtbo \
 	cape-bone-pinmux-test-00A0.dtbo \
-	cape-bone-exptest-00A0.dtbo
+	cape-bone-exptest-00A0.dtbo \
+	BB-BONELT-BT-00A0.dtbo
 
 # the geiger cape
 fw-shipped-$(CONFIG_CAPE_BEAGLEBONE_GEIGER) += \
