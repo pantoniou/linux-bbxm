@@ -460,6 +460,6 @@
 
 &usb_otg_hs {
 	interface_type = <1>;
-	power = <500>;
+	power = <250>;
 	status = "okay";
 };
