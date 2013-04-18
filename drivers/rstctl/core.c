@@ -187,7 +187,7 @@ static struct rstctl *of_rstctl_get(struct device *dev, const char *id)
 
 	rdev = of_node_to_rstctl_dev(args.np);
 	if (IS_ERR_OR_NULL(rdev)) {
-		dev_err(dev, "rstctl not found\n");
+		dev_err(dev, "rstctl node not found\n");
 		rctrl = rdev == NULL ? ERR_PTR(-EINVAL) : (void *)rdev;
 		goto out_unlock;
 	}

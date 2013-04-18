@@ -32,18 +32,17 @@ static int test_consumer_rctrl_probe(struct platform_device *pdev)
 	rctrl = rstctl_get(dev, NULL);
 	if (IS_ERR(rctrl)) {
 		dev_info(dev, "Failed to get it\n");
-	} else {
-		dev_info(dev, "Got it (%s:#%d name %s) label:%s\n",
-				rctrl->rdev->rdesc->name,
-				rctrl->line - rctrl->rdev->rdesc->lines,
-				rctrl->line->name, rctrl->label);
-		/* rstctl_put(rctrl); */
-
-		rstctl_deassert(rctrl);
-		rstctl_assert(rctrl);
-		rstctl_pulse(rctrl, 1000);
-
+		return PTR_ERR(rctrl);
 	}
+
+	dev_info(dev, "Got it (%s:#%d name %s) label:%s\n",
+			rctrl->rdev->rdesc->name,
+			rctrl->line - rctrl->rdev->rdesc->lines,
+			rctrl->line->name, rctrl->label);
+
+	/* for now always assert */
+	rstctl_assert(rctrl);
+	platform_set_drvdata(pdev, rctrl);
 
 	dev_info(&pdev->dev, "loaded OK\n");
 	return 0;
@@ -51,6 +50,12 @@ static int test_consumer_rctrl_probe(struct platform_device *pdev)
 
 static int test_consumer_rctrl_remove(struct platform_device *pdev)
 {
+	struct rstctl *rctrl = platform_get_drvdata(pdev);
+
+	rstctl_deassert(rctrl);
+	rstctl_put(rctrl);
+
+	dev_info(&pdev->dev, "unloaded OK\n");
 	return 0;
 }
 
