@@ -244,7 +244,15 @@ static struct platform_driver gpio_rctrl_driver = {
 	.probe = gpio_rctrl_probe,
 	.remove = gpio_rctrl_remove,
 };
-module_platform_driver(gpio_rctrl_driver);
+
+/*
+ * The reset control driver must be done very early.
+ */
+static int __init gpio_rctrl_drv_reg(void)
+{
+	return platform_driver_register(&gpio_rctrl_driver);
+}
+postcore_initcall(gpio_rctrl_drv_reg);
 
 MODULE_AUTHOR("Pantelis Antoniou <panto@antoniou-consulting.com>");
 MODULE_DESCRIPTION("rstctl GPIO driver");
