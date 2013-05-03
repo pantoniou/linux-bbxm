@@ -259,6 +259,15 @@ static int tilcdc_load(struct drm_device *dev, unsigned long flags)
 	priv->allow_non_rblank = of_property_read_bool(node,
 			"ti,allow-non-reduced-blanking-modes");
 
+	DBG("Allowing Standard Monitor Modes: %s",
+			priv->allow_non_rblank ? "true" : "false");
+
+	priv->allow_non_audio = of_property_read_bool(node,
+			"ti,allow-non-audio-modes");
+
+	DBG("Allowing Non Audio Monitor Modes: %s",
+			priv->allow_non_audio ? "true" : "false");
+
 	pm_runtime_enable(dev->dev);
 
 	/* Determine LCD IP Version */

@@ -245,7 +245,7 @@ static int tilcdc_crtc_mode_set(struct drm_crtc *crtc,
 	uint32_t reg, hbp, hfp, hsw, vbp, vfp, vsw;
 	int ret;
 
-	ret = tilcdc_crtc_mode_valid(crtc, mode, 0);
+	ret = tilcdc_crtc_mode_valid(crtc, mode, 0, 0, NULL);
 	if (WARN_ON(ret))
 		return ret;
 
@@ -452,11 +452,13 @@ int tilcdc_crtc_max_width(struct drm_crtc *crtc)
 }
 
 int tilcdc_crtc_mode_valid(struct drm_crtc *crtc, struct drm_display_mode *mode,
-		int rb_check)
+		int rb_check, int audio, struct edid *edid)
 {
 	struct tilcdc_drm_private *priv = crtc->dev->dev_private;
 	unsigned int bandwidth;
 	uint32_t hbp, hfp, hsw, vbp, vfp, vsw;
+	int has_audio, is_cea_mode;
+
 	int rb;
 
 	/*
@@ -476,6 +478,23 @@ int tilcdc_crtc_mode_valid(struct drm_crtc *crtc, struct drm_display_mode *mode,
 	DBG("Processing mode %dx%d@%d with pixel clock %d",
 		mode->hdisplay, mode->vdisplay,
 		drm_mode_vrefresh(mode), mode->clock);
+
+	/* set if there's audio capability */
+	has_audio = edid && drm_detect_monitor_audio(edid);
+
+	/* set if it's a cea mode */
+	is_cea_mode = drm_match_cea_mode(mode) > 0;
+
+	DBG("mode %dx%d@%d pixel-clock %d audio %s cea %s",
+		mode->hdisplay, mode->vdisplay, drm_mode_vrefresh(mode),
+		mode->clock,
+		has_audio ? "true" : "false",
+		is_cea_mode ? "true" : "false");
+
+	if (audio && has_audio && !is_cea_mode) {
+		DBG("Pruning mode : Does not support audio\n");
+		return MODE_BAD;
+	}
 
 	hbp = mode->htotal - mode->hsync_end;
 	hfp = mode->hsync_start - mode->hdisplay;
