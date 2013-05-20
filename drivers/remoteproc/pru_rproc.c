@@ -22,8 +22,11 @@
 #include <linux/pm_runtime.h>
 #include <linux/pinctrl/consumer.h>
 #include <linux/io.h>
+#include <plat/mailbox.h>
 
 #include "remoteproc_internal.h"
+
+#define MAX_PRU_INTS	8
 
 /* PRU control structure */
 struct pruproc {
@@ -32,6 +35,10 @@ struct pruproc {
 	struct resource_table *table;
 	void __iomem *vaddr;
 	dma_addr_t paddr;
+	struct omap_mbox *mbox;
+	struct notifier_block nb;
+	unsigned int pintc_base;
+	int irqs[MAX_PRU_INTS];
 };
 
 /* Loads the firmware to shared memory. */
@@ -121,6 +128,11 @@ static int pruproc_remove(struct platform_device *pdev)
 	return 0;
 }
 
+static irqreturn_t pru_handler(int irq, void *data)
+{
+	return IRQ_HANDLED;
+}
+
 /* Handle probe of a modem device */
 static int pruproc_probe(struct platform_device *pdev)
 {
@@ -129,7 +141,8 @@ static int pruproc_probe(struct platform_device *pdev)
 	struct rproc *rproc;
 	struct resource *res;
 	struct pinctrl *pinctrl;
-	int err;
+	u32 val;
+	int err, i;
 
 	dev_dbg(dev, "probe pru\n");
 
@@ -177,6 +190,26 @@ static int pruproc_probe(struct platform_device *pdev)
 	pruproc->pdev = pdev;
 	pruproc->rproc = rproc;
 
+	/* zero the irqs */
+	for (i = 0; i < ARRAY_SIZE(pruproc->irqs); i++)
+		pruproc->irqs[i] = -1;
+
+	err = of_property_read_u32(dev->of_node, "ti,pintc-offset", &val);
+	if (err != 0) {
+		dev_err(dev, "no ti,pintc-offset property\n");
+		goto fail_dt_parse;
+	}
+	pruproc->pintc_base = val;
+
+	for (i = 0; i < ARRAY_SIZE(pruproc->irqs); i++) {
+		err = platform_get_irq(pdev, i);
+		if (err < 0)
+			break;
+		pruproc->irqs[i] = err;
+		err = devm_request_irq(dev, err, pru_handler, 0, dev_name(dev), pruproc);
+	}
+	dev_info(dev, "#%d PRU interrupts registered\n", i);
+
 	platform_set_drvdata(pdev, pruproc);
 
 	/* Set the PRU specific firmware handler */
@@ -206,6 +239,7 @@ static int pruproc_probe(struct platform_device *pdev)
 	return 0;
 fail_devm_ioremap:
 fail_platform_get_resource:
+fail_dt_parse:
 	rproc_del(rproc);
 fail_rproc_add:
 	platform_set_drvdata(pdev, NULL);
