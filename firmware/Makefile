@@ -227,8 +227,8 @@ fw-shipped-$(CONFIG_CAPE_BEAGLEBONE) += \
 	BB-GPIOHELP-00A0.dtbo
 
 # PRU firmware
-#fw-shipped-$(CONFIG_PRU_RPROC) += \
-#	prutest.bin
+fw-shipped-$(CONFIG_PRU_RPROC) += \
+	prutest.bin
 
 fw-shipped-all := $(fw-shipped-y) $(fw-shipped-m) $(fw-shipped-)
 
@@ -243,6 +243,9 @@ quiet_cmd_ihex  = IHEX    $@
 
 quiet_cmd_dtco	= DTCO $@
       cmd_dtco	= $(objtree)/scripts/dtc/dtc -O dtb -o $@ -b 0 $(DTC_FLAGS) -@ $<
+
+quiet_cmd_pasm	= PASM $@
+      cmd_pasm	= $(objtree)/scripts/pasm/pasm -b $< $(basename $@)
 
 quiet_cmd_ihex2fw  = IHEX2FW $@
       cmd_ihex2fw  = $(objtree)/$(obj)/ihex2fw $< $@
@@ -333,6 +336,11 @@ $(obj)/%.fw: $(obj)/%.H16 $(ihex2fw_dep) | $(objtree)/$(obj)/$$(dir %)
 # DTBO is device tree blob object
 $(obj)/%.dtbo: $(obj)/capes/%.dts | $(objtree)/$(obj)/$$(dir %)
 	$(call cmd,dtco)
+
+# BIN from PRU assembly
+$(obj)/%.bin: $(obj)/pru/%.p | $(objtree)/$(obj)/$$(dir %)
+	$(call cmd,pasm)
+
 
 $(firmware-dirs):
 	$(call cmd,mkdir)
