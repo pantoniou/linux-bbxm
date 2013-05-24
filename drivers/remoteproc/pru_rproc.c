@@ -1,6 +1,6 @@
 /*
  * PRU driver for TI's AM33xx series of SoCs
- * 
+ *
  * Copyright (C) 2013 Pantelis Antoniou <panto@antoniou-consulting.com>
  *
  * This file is licensed under the terms of the GNU General Public License
@@ -36,6 +36,7 @@ struct pruproc {
 	struct rproc *rproc;
 	struct platform_device *pdev;
 	struct resource_table *table;
+	int table_size;
 	void __iomem *vaddr;
 	dma_addr_t paddr;
 	struct omap_mbox *mbox;
@@ -200,67 +201,15 @@ static int pruproc_load_segments(struct rproc *rproc, const struct firmware *fw)
 	return 0;
 }
 
-/*
- * We only do an rpmsg vdev and no carveouts
- * Cause we don't allocate memory for the fw
- */
-
-struct pru_resource_table {
-	struct resource_table	rsc;
-
-	/* offsets */
-	u32	offset[1];
-
-	/* fw_rsc_vdev */
-	struct fw_rsc_hdr		vdev_hdr;
-	struct fw_rsc_vdev		vdev;
-	struct fw_rsc_vdev_vring	vdev_ring[2];
-
-} __packed;
-
-/* Find the resource table inside the remote processor's firmware. */
+/* just return the built-firmware resources */
 static struct resource_table *
 pruproc_find_rsc_table(struct rproc *rproc, const struct firmware *fw,
 		     int *tablesz)
 {
 	struct pruproc *pp = rproc->priv;
-	struct device *dev = &pp->pdev->dev;
-	struct pru_resource_table *table;
 
-	table = devm_kzalloc(dev, sizeof(*table), GFP_KERNEL);
-	if (table == NULL)
-		return NULL;
-
-	table->rsc.ver	= 1;
-	table->rsc.num	= ARRAY_SIZE(table->offset);
-
-	table->offset[0] = offsetof(struct pru_resource_table, vdev_hdr);
-
-	table->vdev_hdr.type		= RSC_VDEV;
-	table->vdev.id			= VIRTIO_ID_RPMSG;
-	table->vdev.notifyid		= 0;
-	table->vdev.dfeatures		= 0;
-	table->vdev.gfeatures		= 0;
-	table->vdev.config_len		= 0;
-	table->vdev.status		= 0;
-	table->vdev.num_of_vrings	= ARRAY_SIZE(table->vdev_ring);
-	table->vdev.vring[0].da		= PRU_SHARED_DATA_RAM;
-	table->vdev.vring[0].align	= 32;
-	table->vdev.vring[0].num	= 64;
-	table->vdev.vring[0].notifyid	= 1;
-
-	table->vdev.vring[1].da		= PRU_SHARED_DATA_RAM + 0x1000;
-	table->vdev.vring[1].align	= 32;
-	table->vdev.vring[1].num	= 64;
-	table->vdev.vring[1].notifyid	= 2;
-
-	dev_err(dev, "table->vdev=%p\n", &table->vdev);
-
-	dev_dbg(dev, "%s\n", __func__);
-
-	*tablesz = sizeof(*table);
-
-	return (void *)table;
+	*tablesz = pp->table_size;
+	return pp->table;
 }
 
 static int pruproc_sanity_check(struct rproc *rproc, const struct firmware *fw)
@@ -405,18 +354,165 @@ static irqreturn_t pru_handler(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
+struct pru_resource_table {
+	struct resource_table	rsc;
+
+	/* offsets */
+	u32	offset[1];
+
+	/* fw_rsc_vdev */
+	struct fw_rsc_hdr		vdev_hdr;
+	struct fw_rsc_vdev		vdev;
+	struct fw_rsc_vdev_vring	vdev_ring[2];
+
+} __packed;
+
+static int build_rsc_table(struct platform_device *pdev, struct pruproc *pp)
+{
+	struct device *dev = &pdev->dev;
+	struct device_node *node = dev->of_node;
+	struct device_node *rnode = NULL;	/* resource table node */
+	struct device_node *rvnode = NULL;	/* vdev node */
+	struct resource_table *rsc;
+	struct fw_rsc_hdr *rsc_hdr;
+	struct fw_rsc_vdev *rsc_vdev;
+	char vring_name[16];
+	u32 vring_data[4], val;
+	struct fw_rsc_vdev_vring *rsc_vring;
+	void *table, *p;
+	int i, err, table_size, num_vrings;
+
+	if (node == NULL) {
+		dev_err(dev, "No OF device node\n");
+		return -EINVAL;
+	}
+
+	/* verify OF data */
+
+	/* first find a valid resource-table node */
+	for_each_child_of_node(node, rnode) {
+		if (of_property_read_bool(rnode, "resource-table"))
+			break;
+	}
+
+	/* no resource node found */
+	if (rnode == NULL) {
+		dev_err(dev, "No resource-table node node\n");
+		return -EINVAL;
+	}
+
+	/* now find out the vdev node */
+	for_each_child_of_node(rnode, rvnode) {
+		if (of_property_read_bool(rvnode, "vdev"))
+			break;
+	}
+
+	table_size = sizeof(struct resource_table);
+
+	num_vrings = 0;
+	if (rvnode != NULL) {
+		/* hardcoded limit is 256 vrings */
+		for (num_vrings = 0; num_vrings < 256; num_vrings++) {
+			snprintf(vring_name, sizeof(vring_name), "vring-%d",
+					num_vrings);
+			if (of_property_read_u32_array(rvnode, vring_name,
+					vring_data, ARRAY_SIZE(vring_data)) != 0)
+				break;
+		}
+
+		table_size += sizeof(u32) +
+		     sizeof(struct fw_rsc_hdr) +
+		     sizeof(struct fw_rsc_vdev) +
+		     sizeof(struct fw_rsc_vdev_vring) * num_vrings;
+	}
+
+	table = devm_kzalloc(dev, table_size, GFP_KERNEL);
+	if (table == NULL) {
+		dev_err(dev, "Failed to allocate resource table\n");
+		err = -ENOMEM;
+		goto err_fail;
+	}
+	pp->table = table;
+	pp->table_size = table_size;
+
+	p = table;	/* pointer at start */
+
+	/* resource table */
+	rsc = p;
+	p += sizeof(*rsc);
+	rsc->ver = 1;	/* resource table version 1 */
+	if (rvnode != NULL)
+		rsc->num = 1;	/* only support vdev for now */
+	else
+		rsc->num = 0;
+
+	/* offsets */
+	p += rsc->num * sizeof(u32);	/* point after offsets */
+	if (rsc->num > 0) {
+
+		rsc_hdr = p;
+		rsc->offset[0] = p - table;
+
+		/* resource header */
+		p += sizeof(*rsc_hdr);
+		rsc_hdr->type = RSC_VDEV;
+
+		/* vdev */
+		rsc_vdev = p;
+		p += sizeof(*rsc_vdev);
+		/* rpmsg for now */
+		rsc_vdev->id = VIRTIO_ID_RPMSG;
+		err = of_property_read_u32(rvnode, "notifyid", &val);
+		if (err != 0) {
+			dev_err(dev, "no notifyid vdev property\n");
+			goto err_fail;
+		}
+		rsc_vdev->notifyid = val;
+		rsc_vdev->dfeatures = 0;
+		rsc_vdev->gfeatures = 0;
+		rsc_vdev->config_len = 0;
+		rsc_vdev->status = 0;
+		rsc_vdev->num_of_vrings = num_vrings;
+
+		for (i = 0; i < num_vrings; i++) {
+			rsc_vring = p;
+			p += sizeof(*rsc_vring);
+
+			snprintf(vring_name, sizeof(vring_name), "vring-%d",
+					i);
+			err = of_property_read_u32_array(rvnode, vring_name,
+					vring_data, ARRAY_SIZE(vring_data));
+			if (err != 0) {
+				dev_err(dev, "no %s property\n", vring_name);
+				goto err_fail;
+			}
+			rsc_vring->da = vring_data[0];
+			rsc_vring->align = vring_data[1];
+			rsc_vring->num = vring_data[2];
+			rsc_vring->notifyid = vring_data[3];
+		}
+	}
+
+	err = 0;
+
+err_fail:
+	of_node_put(rvnode);	/* of_node_put(NULL) is a NOP */
+	of_node_put(rnode);
+
+	return err;
+}
+
 /* Handle probe of a modem device */
 static int pruproc_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct pruproc *pp;
-	struct rproc *rproc;
+	int pm_get = 0;
+	struct rproc *rproc = NULL;
 	struct resource *res;
 	struct pinctrl *pinctrl;
 	u32 val;
 	int err, i, irq;
-
-	dev_dbg(dev, "probe pru\n");
 
 	/* get pinctrl */
 	pinctrl = devm_pinctrl_get_select_default(dev);
@@ -434,20 +530,21 @@ static int pruproc_probe(struct platform_device *pdev)
 	if (dev->of_node == NULL) {
 		dev_err(dev, "Only OF configuration supported\n");
 		err = -ENODEV;
-		goto fail_of_node;
+		goto err_fail;
 	}
 
 	pm_runtime_enable(dev);
 	err = pm_runtime_get_sync(dev);
 	if (err != 0) {
 		dev_err(dev, "pm_runtime_get_sync failed\n");
-		goto fail_pm_runtime_get_sync;
+		goto err_fail;
 	}
+	pm_get = 1;
 
 	err = dma_set_coherent_mask(dev, DMA_BIT_MASK(32));
 	if (err) {
 		dev_err(dev, "dma_set_coherent_mask: %d\n", err);
-		goto fail_dma_set_coherent_mask;
+		goto err_fail;
 	}
 
 	rproc = rproc_alloc(dev, pdev->name, &pruproc_ops,
@@ -455,7 +552,7 @@ static int pruproc_probe(struct platform_device *pdev)
 	if (!rproc) {
 		dev_err(dev, "rproc_alloc failed\n");
 		err = -ENOMEM;
-		goto fail_rproc_alloc;
+		goto err_fail;
 	}
 
 	pp = rproc->priv;
@@ -472,7 +569,7 @@ static int pruproc_probe(struct platform_device *pdev)
 	err = of_property_read_u32(dev->of_node, "ti,pintc-offset", &val);
 	if (err != 0) {
 		dev_err(dev, "no ti,pintc-offset property\n");
-		goto fail_dt_parse;
+		goto err_fail;
 	}
 	pp->pintc_offset = val;
 
@@ -492,7 +589,7 @@ static int pruproc_probe(struct platform_device *pdev)
 				dev_name(dev), pp);
 		if (err != 0) {
 			dev_err(dev, "Failed to register irq %d\n", irq);
-			goto fail_req_irq;
+			goto err_fail;
 		}
 	}
 	pp->num_irqs = i;
@@ -501,12 +598,32 @@ static int pruproc_probe(struct platform_device *pdev)
 			pp->events, pp->num_irqs);
 	if (err != 0) {
 		dev_err(dev, "Failed to read events array\n");
-		goto fail_prop_events;
+		goto err_fail;
 	}
 
 	dev_info(dev, "#%d PRU interrupts registered\n", pp->num_irqs);
 
 	platform_set_drvdata(pdev, pp);
+
+	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	if (res == NULL) {
+		dev_err(dev, "failed to parse MEM resource\n");
+		goto err_fail;
+	}
+
+	pp->paddr = res->start;
+	pp->vaddr = devm_ioremap(dev, res->start, resource_size(res));
+	if (pp->vaddr == NULL) {
+		dev_err(dev, "failed to parse MEM resource\n");
+		goto err_fail;
+	}
+
+	/* build the resource table from DT */
+	err = build_rsc_table(pdev, pp);
+	if (err != 0) {
+		dev_err(dev, "failed to build resource table\n");
+		goto err_fail;
+	}
 
 	/* Set the PRU specific firmware handler */
 	rproc->fw_ops = &pruproc_fw_ops;
@@ -515,39 +632,17 @@ static int pruproc_probe(struct platform_device *pdev)
 	err = rproc_add(rproc);
 	if (err) {
 		dev_err(dev, "rproc_add failed\n");
-		goto fail_rproc_add;
-	}
-
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	if (res == NULL) {
-		dev_err(dev, "failed to parse MEM resource\n");
-		goto fail_platform_get_resource;
-	}
-
-	pp->paddr = res->start;
-	pp->vaddr = devm_ioremap(dev, res->start, resource_size(res));
-	if (pp->vaddr == NULL) {
-		dev_err(dev, "failed to parse MEM resource\n");
-		goto fail_devm_ioremap;
+		goto err_fail;
 	}
 
 	dev_info(dev, "Loaded OK\n");
 
 	return 0;
-fail_devm_ioremap:
-fail_platform_get_resource:
-fail_dt_parse:
-fail_req_irq:
-fail_prop_events:
-	rproc_del(rproc);
-fail_rproc_add:
-	platform_set_drvdata(pdev, NULL);
-	rproc_put(rproc);
-fail_rproc_alloc:
-fail_dma_set_coherent_mask:
-fail_of_node:
-	pm_runtime_disable(dev);
-fail_pm_runtime_get_sync:
+err_fail:
+	if (rproc)
+		rproc_put(rproc);
+	if (pm_get)
+		pm_runtime_disable(dev);
 	return err;
 }
 
