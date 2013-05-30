@@ -201,6 +201,21 @@ fw-shipped-$(CONFIG_CAPE_BEAGLEBONE) += cape-boneblack-hdmi-00A0.dtbo
 # the Tester cape (tester-side)
 fw-shipped-$(CONFIG_CAPE_BEAGLEBONE) += cape-bone-tester-00A0.dtbo
 
+# the virtual peripheral capes for the UARTs
+# UART3 is not routed to the connectors, no cape for it
+fw-shipped-$(CONFIG_CAPE_BEAGLEBONE) += \
+	BB-UART1-00A0.dtbo BB-UART2-00A0.dtbo \
+	BB-UART4-00A0.dtbo BB-UART5-00A0.dtbo
+
+# the virtual peripheral capes for the I2Cs
+# I2C0 & I2C2 are enabled by default, no capes for them
+fw-shipped-$(CONFIG_CAPE_BEAGLEBONE) += \
+	BB-I2C1-00A0.dtbo BB-I2C1A1-00A0.dtbo
+
+# the virtual peripheral capes for the SPIs
+fw-shipped-$(CONFIG_CAPE_BEAGLEBONE) += \
+	BB-SPI0-00A0.dtbo BB-SPI1-00A0.dtbo BB-SPI1A1-00A0.dtbo
+
 # PRU firmware
 fw-shipped-$(CONFIG_PRU_RPROC) += \
 	prutest.bin
