@@ -195,7 +195,7 @@
 					debounce_interval = <50>;
 					linux,code = <105>;
 					label = "left";
-					gpios = <&gpio2 16 0x0>;
+					gpios = <&gpio2 16 0x1>;
 					gpio-key,wakeup;
 					autorepeat;
 				};
@@ -203,7 +203,7 @@
 					debounce_interval = <50>;
 					linux,code = <106>;
 					label = "right";
-					gpios = <&gpio2 17 0x0>;
+					gpios = <&gpio2 17 0x1>;
 					gpio-key,wakeup;
 					autorepeat;
 				};
@@ -211,7 +211,7 @@
 					debounce_interval = <50>;
 					linux,code = <103>;
 					label = "up";
-					gpios = <&gpio2 19 0x0>;
+					gpios = <&gpio2 19 0x1>;
 					gpio-key,wakeup;
 					autorepeat;
 				};
@@ -219,7 +219,7 @@
 					debounce_interval = <50>;
 					linux,code = <108>;
 					label = "down";
-					gpios = <&gpio4 16 0x0>;
+					gpios = <&gpio4 16 0x1>;
 					gpio-key,wakeup;
 					autorepeat;
 				};
@@ -227,7 +227,7 @@
 					debounce_interval = <50>;
 					linux,code = <28>;
 					label = "enter";
-					gpios = <&gpio1 3 0x0>;
+					gpios = <&gpio1 3 0x1>;
 					gpio-key,wakeup;
 				};
 			};
