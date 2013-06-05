@@ -290,7 +290,8 @@ static int tilcdc_crtc_mode_set(struct drm_crtc *crtc,
 			mode->hdisplay, mode->vdisplay, hbp, hfp, hsw, vbp, vfp, vsw);
 
 	/* Configure the AC Bias Period and Number of Transitions per Interrupt: */
-	reg = tilcdc_read(dev, LCDC_RASTER_TIMING_2_REG) & ~0x000fff00;
+	reg = tilcdc_read(dev, LCDC_RASTER_TIMING_2_REG);
+	reg &= ~0x000fff00;
 	reg |= LCDC_AC_BIAS_FREQUENCY(info->ac_bias) |
 		LCDC_AC_BIAS_TRANSITIONS_PER_INT(info->ac_bias_intrpt);
 
@@ -299,6 +300,8 @@ static int tilcdc_crtc_mode_set(struct drm_crtc *crtc,
 	 * a value of 0 as 1
 	 */
 	if (priv->rev == 2) {
+		/* clear bits we're going to set */
+		reg &= ~0x78000033;
 		reg |= ((hfp-1) & 0x300) >> 8;
 		reg |= ((hbp-1) & 0x300) >> 4;
 		reg |= ((hsw-1) & 0x3c0) << 21;
