@@ -305,7 +305,7 @@ static int tfp410_modeset_init(struct tilcdc_module *mod, struct drm_device *dev
 	return 0;
 }
 
-static void tfp410_destroy(struct tilcdc_module *mod)
+static void tfp410_destroy(struct tilcdc_module *mod, struct drm_device *dev)
 {
 	struct tfp410_module *tfp410_mod = to_tfp410_module(mod);
 
@@ -507,7 +507,7 @@ static int tfp410_probe(struct platform_device *pdev)
 	return 0;
 
 fail:
-	tfp410_destroy(mod);
+	tfp410_destroy(mod, NULL);	/* meh */
 	return ret;
 }
 
