@@ -285,7 +285,7 @@ static int panel_modeset_init(struct tilcdc_module *mod, struct drm_device *dev)
 	return 0;
 }
 
-static void panel_destroy(struct tilcdc_module *mod)
+static void panel_destroy(struct tilcdc_module *mod, struct drm_device *dev)
 {
 	struct panel_module *panel_mod = to_panel_module(mod);
 
@@ -482,7 +482,7 @@ static int panel_probe(struct platform_device *pdev)
 	return 0;
 
 fail:
-	panel_destroy(mod);
+	panel_destroy(mod, NULL);
 	return ret;
 }
 
