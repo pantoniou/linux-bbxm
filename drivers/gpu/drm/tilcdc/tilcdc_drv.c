@@ -140,14 +140,14 @@ static int tilcdc_unload(struct drm_device *dev)
 	flush_workqueue(priv->wq);
 	destroy_workqueue(priv->wq);
 
-	dev->dev_private = NULL;
-
 	pm_runtime_disable(dev->dev);
 
 	list_for_each_entry_safe(mod, cur, &module_list, list) {
 		DBG("destroying module: %s", mod->name);
-		mod->funcs->destroy(mod);
+		mod->funcs->destroy(mod, dev);
 	}
+
+	dev->dev_private = NULL;
 
 	kfree(priv);
 
