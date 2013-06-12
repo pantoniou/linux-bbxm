@@ -454,32 +454,13 @@ int tilcdc_crtc_max_width(struct drm_crtc *crtc)
 	return max_width;
 }
 
-/* this should find it's way to DT */
-static int audio_mode_check(int hdisplay, int vdisplay, int refresh,
-		int cea_mode)
-{
-	/* only cea modes can handle audio */
-	if (cea_mode <= 0)
-		return 0;
-
-	/* hardcoded mode that supports audio (at 24Hz) */
-	if (hdisplay == 1920 && vdisplay == 1080 && refresh == 24)
-		return 1;
-
-	/* from the rest, only those modes that refresh at 50/60 */
-	if (refresh != 50 && refresh != 60)
-		return 0;
-
-	return 1;
-}
-
 int tilcdc_crtc_mode_valid(struct drm_crtc *crtc, struct drm_display_mode *mode,
 		int rb_check, int audio, struct edid *edid)
 {
 	struct tilcdc_drm_private *priv = crtc->dev->dev_private;
 	unsigned int bandwidth;
 	uint32_t hbp, hfp, hsw, vbp, vfp, vsw;
-	int has_audio, is_cea_mode, can_output_audio, refresh;
+	int has_audio, is_cea_mode;
 	uint8_t cea_mode;
 	int rb;
 
@@ -497,10 +478,6 @@ int tilcdc_crtc_mode_valid(struct drm_crtc *crtc, struct drm_display_mode *mode,
 	if (mode->vdisplay > 2048)
 		return MODE_VIRTUAL_Y;
 
-	DBG("Processing mode %dx%d@%d with pixel clock %d",
-		mode->hdisplay, mode->vdisplay,
-		drm_mode_vrefresh(mode), mode->clock);
-
 	/* set if there's audio capability */
 	has_audio = edid && drm_detect_monitor_audio(edid);
 
@@ -508,14 +485,9 @@ int tilcdc_crtc_mode_valid(struct drm_crtc *crtc, struct drm_display_mode *mode,
 	cea_mode = drm_match_cea_mode(mode);
 	is_cea_mode = cea_mode > 0;
 
-	/* set if we can output audio */
-	can_output_audio = edid && has_audio &&
-			audio_mode_check(mode->hdisplay, mode->vdisplay,
-					refresh, cea_mode);
-
-	DBG("mode %dx%d@%d pixel-clock %d audio %s cea %s can_output %s",
-		mode->hdisplay, mode->vdisplay, refresh,
-		mode->clock,
+	DBG("Processing mode %dx%d@%d with pixel clock %d audio %s cea %s",
+		mode->hdisplay, mode->vdisplay,
+		drm_mode_vrefresh(mode), mode->clock,
 		has_audio ? "true" : "false",
 		is_cea_mode ? "true" : "false");
 
