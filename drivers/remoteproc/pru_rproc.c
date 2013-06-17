@@ -26,6 +26,8 @@
 #include <linux/io.h>
 #include <plat/mailbox.h>
 #include <linux/virtio_ids.h>
+#include <linux/elf.h>
+#include <linux/byteorder/generic.h>
 
 #include "remoteproc_internal.h"
 
@@ -46,6 +48,8 @@ struct pruproc {
 	int num_irqs;
 	int irqs[MAX_PRU_INTS];
 	int events[MAX_PRU_INTS];
+	const char *fw_name;
+	unsigned int is_elf : 1;
 };
 
 /* global memory map (for am33xx) (almost the same as local) */
@@ -186,8 +190,13 @@ static inline void pcntrl_write_reg(struct pruproc *pp, int pru, unsigned int re
 	return pru_write_reg(pp, reg + pp->pctrl_offset[pru], val);
 }
 
+static int pruproc_bin_sanity_check(struct rproc *rproc, const struct firmware *fw)
+{
+	return 0;
+}
+
 /* Loads the firmware to shared memory. */
-static int pruproc_load_segments(struct rproc *rproc, const struct firmware *fw)
+static int pruproc_bin_load_segments(struct rproc *rproc, const struct firmware *fw)
 {
 	struct pruproc *pp = rproc->priv;
 	unsigned int offset = PRU_INSN_RAM0;
@@ -201,6 +210,149 @@ static int pruproc_load_segments(struct rproc *rproc, const struct firmware *fw)
 	return 0;
 }
 
+static int
+pruproc_elf_sanity_check(struct rproc *rproc, const struct firmware *fw)
+{
+	const char *name = rproc->firmware;
+	struct device *dev = &rproc->dev;
+	struct elf32_hdr *ehdr;
+	char class;
+
+	if (!fw) {
+		dev_err(dev, "failed to load %s\n", name);
+		return -EINVAL;
+	}
+
+	if (fw->size < sizeof(struct elf32_hdr)) {
+		dev_err(dev, "Image is too small\n");
+		return -EINVAL;
+	}
+
+	ehdr = (struct elf32_hdr *)fw->data;
+
+	/* We only support ELF32 at this point */
+	class = ehdr->e_ident[EI_CLASS];
+	if (class != ELFCLASS32) {
+		dev_err(dev, "Unsupported class: %d\n", class);
+		return -EINVAL;
+	}
+
+	/* PRU is little endian */
+	if (ehdr->e_ident[EI_DATA] != ELFDATA2LSB) {
+		dev_err(dev, "Unsupported firmware endianness\n");
+		return -EINVAL;
+	}
+
+	if (fw->size < le32_to_cpu(ehdr->e_shoff) +
+			sizeof(struct elf32_shdr)) {
+		dev_err(dev, "Image is too small\n");
+		return -EINVAL;
+	}
+
+	if (memcmp(ehdr->e_ident, ELFMAG, SELFMAG)) {
+		dev_err(dev, "Image is corrupted (bad magic)\n");
+		return -EINVAL;
+	}
+
+	if (le16_to_cpu(ehdr->e_phnum) == 0) {
+		dev_err(dev, "No loadable segments\n");
+		return -EINVAL;
+	}
+
+	if (le32_to_cpu(ehdr->e_phoff) > fw->size) {
+		dev_err(dev, "Firmware size is too small\n");
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+static int
+pruproc_elf_load_segments(struct rproc *rproc, const struct firmware *fw)
+{
+	struct device *dev = &rproc->dev;
+	struct pruproc *pp = rproc->priv;
+	struct elf32_hdr *ehdr;
+	struct elf32_phdr *phdr;
+	int i, ret = 0;
+	const u8 *elf_data = fw->data;
+	u32 da, memsz, filesz, offset, flags;
+	u32 sect_offset, sect_maxsz;
+	void *ptr;
+
+	ehdr = (struct elf32_hdr *)elf_data;
+	phdr = (struct elf32_phdr *)(elf_data + le32_to_cpu(ehdr->e_phoff));
+
+	/* go through the available ELF segments */
+	for (i = 0; i < le16_to_cpu(ehdr->e_phnum); i++, phdr++) {
+
+		da = le32_to_cpu(phdr->p_paddr);
+		memsz = le32_to_cpu(phdr->p_memsz);
+		filesz = le32_to_cpu(phdr->p_filesz);
+		offset = le32_to_cpu(phdr->p_offset);
+		flags = le32_to_cpu(phdr->p_flags);
+
+		if (le32_to_cpu(phdr->p_type) != PT_LOAD)
+			continue;
+
+		dev_dbg(dev, "phdr: type %d da 0x%x memsz 0x%x filesz 0x%x"
+				    " flags %c%c%c\n",
+					le32_to_cpu(phdr->p_type),
+					da, memsz, filesz,
+					(flags & PF_R) ? 'R' : '-',
+					(flags & PF_W) ? 'W' : '-',
+					(flags & PF_X) ? 'W' : '-');
+
+		/* PRU is not a unified address space architecture */
+		/* we need to map differently executable & data segments */
+
+		if (filesz > memsz) {
+			dev_err(dev, "bad phdr filesz 0x%x memsz 0x%x\n",
+							filesz, memsz);
+			ret = -EINVAL;
+			break;
+		}
+
+		if (offset + filesz > fw->size) {
+			dev_err(dev, "truncated fw: need 0x%x avail 0x%zx\n",
+					offset + filesz, fw->size);
+			ret = -EINVAL;
+			break;
+		}
+
+		/* we can't use rproc_da_to_va */
+
+		/* text? to code area */
+		if (flags & PF_X) {
+			sect_offset = PRU_INSN_RAM0;
+			sect_maxsz = 0x2000;
+		} else {
+			sect_offset = PRU_DATA_RAM0;
+			sect_maxsz = 0x2000;
+		}
+
+		/* TODO: check for spill over */
+
+		ptr = pp->vaddr + sect_offset + offset;
+
+		/* put the segment where the remote processor expects it */
+		if (filesz > 0)
+			memcpy(ptr, elf_data + offset, filesz);
+		else
+			memset(ptr, 0, memsz);
+	}
+
+	return ret;
+}
+
+static
+u32 pruproc_elf_get_boot_addr(struct rproc *rproc, const struct firmware *fw)
+{
+	struct elf32_hdr *ehdr  = (struct elf32_hdr *)fw->data;
+
+	return le32_to_cpu(ehdr->e_entry);
+}
+
 /* just return the built-firmware resources */
 static struct resource_table *
 pruproc_find_rsc_table(struct rproc *rproc, const struct firmware *fw,
@@ -212,16 +364,19 @@ pruproc_find_rsc_table(struct rproc *rproc, const struct firmware *fw,
 	return pp->table;
 }
 
-static int pruproc_sanity_check(struct rproc *rproc, const struct firmware *fw)
-{
-	return 0;
-}
-
-/* PRU firmware handler operations */
-const struct rproc_fw_ops pruproc_fw_ops = {
+/* PRU binary firmware handler operations */
+const struct rproc_fw_ops pruproc_bin_fw_ops = {
 	.find_rsc_table	= pruproc_find_rsc_table,
-	.load		= pruproc_load_segments,
-	.sanity_check	= pruproc_sanity_check,
+	.load		= pruproc_bin_load_segments,
+	.sanity_check	= pruproc_bin_sanity_check,
+};
+
+/* PRU elf handler operations */
+const struct rproc_fw_ops pruproc_elf_fw_ops = {
+	.find_rsc_table	= pruproc_find_rsc_table,
+	.load		= pruproc_elf_load_segments,
+	.sanity_check	= pruproc_elf_sanity_check,
+	.get_boot_addr	= pruproc_elf_get_boot_addr,
 };
 
 /* Kick the modem with specified notification id */
@@ -507,6 +662,7 @@ static int pruproc_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct pruproc *pp;
+	const char *fw_name;
 	int pm_get = 0;
 	struct rproc *rproc = NULL;
 	struct resource *res;
@@ -547,8 +703,13 @@ static int pruproc_probe(struct platform_device *pdev)
 		goto err_fail;
 	}
 
-	rproc = rproc_alloc(dev, pdev->name, &pruproc_ops,
-			"prutest.bin", sizeof(*pp));
+	err = of_property_read_string(dev->of_node, "ti,firmware", &fw_name);
+	if (err != 0) {
+		dev_err(dev, "can't find fw property %s\n", "ti,firmware");
+		goto err_fail;
+	}
+	rproc = rproc_alloc(dev, pdev->name, &pruproc_ops, fw_name,
+			sizeof(*pp));
 	if (!rproc) {
 		dev_err(dev, "rproc_alloc failed\n");
 		err = -ENOMEM;
@@ -558,6 +719,7 @@ static int pruproc_probe(struct platform_device *pdev)
 	pp = rproc->priv;
 	pp->pdev = pdev;
 	pp->rproc = rproc;
+	pp->fw_name = fw_name;
 
 	/* zero the irqs */
 	for (i = 0; i < ARRAY_SIZE(pp->irqs); i++)
@@ -572,6 +734,9 @@ static int pruproc_probe(struct platform_device *pdev)
 		goto err_fail;
 	}
 	pp->pintc_offset = val;
+
+	/* check firmware type */
+	pp->is_elf = of_property_read_bool(dev->of_node, "ti,elf");
 
 	pp->pctrl_offset[0] = PRU_PRU0_CONTROL;
 	pp->pctrl_offset[1] = PRU_PRU1_CONTROL;
@@ -626,7 +791,10 @@ static int pruproc_probe(struct platform_device *pdev)
 	}
 
 	/* Set the PRU specific firmware handler */
-	rproc->fw_ops = &pruproc_fw_ops;
+	if (!pp->is_elf)
+		rproc->fw_ops = &pruproc_bin_fw_ops;
+	else
+		rproc->fw_ops = &pruproc_elf_fw_ops;
 
 	/* Register as a remoteproc device */
 	err = rproc_add(rproc);
