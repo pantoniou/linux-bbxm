@@ -105,6 +105,8 @@ struct pruproc {
 #define  CONTROL_ENABLE		0x0002
 #define  CONTROL_SLEEPING	0x0004
 #define  CONTROL_COUNTER_ENABLE	0x0008
+#define  CONTROL_SINGLE_STEP	0x0100
+#define  CONTROL_RUNSTATE	0x4000
 
 #define PCTRL_STATUS		0x0004
 #define PCTRL_WAKEUP_EN		0x0008
@@ -114,6 +116,10 @@ struct pruproc {
 #define PCTRL_CTBIR1		0x0024
 #define PCTRL_CTPPR0		0x0028
 #define PCTRL_CTPPR1		0x002C
+
+/* PRU DEBUG */
+#define PDBG_GPREG(x)		(0x0000 + (x) * 4)
+#define PDBG_CT_REG(x)		(0x0080 + (x) * 4)
 
 /* PRU INTC */
 #define PINTC_REVID		0x0000
@@ -213,6 +219,17 @@ static inline void pcntrl_write_reg(struct pruproc_core *ppc, unsigned int reg,
 		u32 val)
 {
 	return pru_write_reg(ppc->pruproc, reg + ppc->pctrl, val);
+}
+
+static inline u32 pdbg_read_reg(struct pruproc_core *ppc, unsigned int reg)
+{
+	return pru_read_reg(ppc->pruproc, reg + ppc->pdbg);
+}
+
+static inline void pdbg_write_reg(struct pruproc_core *ppc, unsigned int reg,
+		u32 val)
+{
+	return pru_write_reg(ppc->pruproc, reg + ppc->pdbg, val);
 }
 
 static int pruproc_bin_sanity_check(struct rproc *rproc, const struct firmware *fw)
@@ -529,11 +546,97 @@ static int pruproc_remove(struct platform_device *pdev)
 	return 0;
 }
 
+#define PRU_HALT_INSN	0x2a000000
+
+#define PRU_SC_HALT	0
+#define PRU_SC_PUTC	1
+#define PRU_SC_EXIT	2
+#define PRU_SC_PUTS	3
+
+static int pru_handle_syscall(struct pruproc_core *ppc)
+{
+	struct pruproc *pp = ppc->pruproc;
+	struct device *dev = &pp->pdev->dev;
+	u32 val, addr, scno, arg0;
+	char *ptr;
+	int valid_sc;
+
+	/* check whether it's halted */
+	val = pcntrl_read_reg(ppc, PCTRL_CONTROL);
+	if ((val & CONTROL_RUNSTATE) != 0) {
+		dev_dbg(dev, "PRU #%d not halted\n",
+				ppc->idx);
+		return -1;
+	}
+
+	/* read the instruction */
+	addr = pcntrl_read_reg(ppc, PCTRL_STATUS);
+	val = *(u32 *)(pp->vaddr + ppc->iram[0] + addr * 4);
+
+	/* check whether it's a halt instruction */
+	if (val != PRU_HALT_INSN) {
+		dev_dbg(dev, "PRU #%d not in halt insn (addr=0x%x val 0x%08x)\n",
+				ppc->idx, addr, val);
+		return -1;
+	}
+
+	valid_sc = 0;
+	scno = pdbg_read_reg(ppc, PDBG_GPREG(14));
+	arg0 = pdbg_read_reg(ppc, PDBG_GPREG(15));
+	switch (scno) {
+		case PRU_SC_HALT:
+			dev_dbg(dev, "PRU #%d SC HALT\n",
+				ppc->idx);
+			return 1;
+
+		case PRU_SC_PUTC:
+			dev_info(dev, "PRU #%d SC PUTC '%c'\n", 
+				ppc->idx, (char)(arg0 & 0xff));
+			break;
+
+		case PRU_SC_EXIT:
+			dev_dbg(dev, "PRU #%d SC EXIT %d\n",
+				ppc->idx, (int)arg0);
+			return 1;
+
+		case PRU_SC_PUTS:
+			/* pointers can only be in own data ram */
+			if (arg0 >= ppc->dram[1]) {
+				dev_err(dev, "PRU #%d SC PUTS bad 0x%x\n",
+						arg0);
+				return 1;
+			}
+			ptr = pp->vaddr + ppc->dram[0] + arg0;
+			dev_dbg(dev, "PRU #%d SC PUTS %x (%s)\n",
+				ppc->idx, (int)arg0, ptr);
+			break;
+		default:
+			dev_dbg(dev, "PRU #%d SC Unknown (%d)\n",
+				ppc->idx, scno);
+			return 1;
+	}
+
+	/* skip over the HALT insn */
+	val = pcntrl_read_reg(ppc, PCTRL_CONTROL);
+	val &= 0xffff;
+	val |= (addr + 1) << 16;
+	val |= CONTROL_ENABLE;
+	val &= ~CONTROL_SOFT_RST_N;
+
+	/* dev_dbg(dev, "PRU#%d new PCTRL_CONTROL=0x%08x\n",
+			ppc->idx, val); */
+
+	pcntrl_write_reg(ppc, PCTRL_CONTROL, val);
+
+	return 0;
+}
+
 static irqreturn_t pru_handler(int irq, void *data)
 {
 	struct pruproc *pp = data;
+	struct pruproc_core *ppc;
 	struct device *dev = &pp->pdev->dev;
-	int i, ev;
+	int i, ev, sysint, handled, ret;
 	u32 val;
 
 	/* find out which IRQ we got */
@@ -555,27 +658,43 @@ static irqreturn_t pru_handler(int irq, void *data)
 	if ((val & HIPIR_NOPEND) != 0)
 		return IRQ_NONE;
 
-	dev_dbg(dev, "Got interrupt #%d, event %d, sysint %d\n", irq, ev,
-			val & 0x3f);
+	sysint = val & 0x3f;
 
-	/* disable the interrupt */
-	pintc_write_reg(pp, PINTC_HIDISR, ev);
+	/* dev_dbg(dev, "Got interrupt #%d, event %d, sysint %d\n", irq, ev,
+			sysint); */
+
+	/* pump all the vrings */
+	for (i = 0; i < pp->num_prus; i++) {
+		ppc = pp->pruc[i];
+	}
+
+	/* now check if it's halted */
+	handled = 0;
+	for (i = 0; i < pp->num_prus; i++) {
+		ppc = pp->pruc[i];
+
+		ret = pru_handle_syscall(ppc);
+		if (ret == 0) 	/* system call handled */
+			handled++;
+
+	}
+
+	if (handled) {
+		/* clear event */
+		if (sysint < 32)
+			pintc_write_reg(pp, PINTC_SECR0, 1 << sysint);
+		else
+			pintc_write_reg(pp, PINTC_SECR1, 1 << (sysint - 32));
+	} else {
+
+		dev_dbg(dev, "not handled; disabling interrupt\n");
+
+		/* disable the interrupt */
+		pintc_write_reg(pp, PINTC_HIDISR, ev);
+	}
 
 	return IRQ_HANDLED;
 }
-
-struct pru_resource_table {
-	struct resource_table	rsc;
-
-	/* offsets */
-	u32	offset[1];
-
-	/* fw_rsc_vdev */
-	struct fw_rsc_hdr		vdev_hdr;
-	struct fw_rsc_vdev		vdev;
-	struct fw_rsc_vdev_vring	vdev_ring[2];
-
-} __packed;
 
 static int build_rsc_table(struct platform_device *pdev,
 		struct device_node *node, struct pruproc_core *ppc)
@@ -1135,6 +1254,7 @@ static int pruproc_probe(struct platform_device *pdev)
 			goto err_fail;
 		}
 
+		pp->pruc[i] = ppc;
 		i++;
 	}
 	pnode = NULL;
