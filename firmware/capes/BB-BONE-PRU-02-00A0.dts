@@ -153,8 +153,6 @@
 					<2 2>,	/* CH2 -> EVTOUT0 */
 					<3 3>;	/* CH3 -> EVTOUT1 */
 
-				num-prus = <2>;
-
 				/* definition for the first PRU */
 				pru0 {
 					iram = <0x34000 0x02000>;	/* code ram (8K) */
@@ -178,8 +176,8 @@
 							vdev;
 							notifyid = <0>;
 							/* da align num notifyid */
-							vring-0 = <0x10000 16 64 0>;
-							vring-1 = <0x11000 16 64 1>;
+							vring-0 = <0x10000 16 64 1>;
+							vring-1 = <0x11000 16 64 2>;
 						};
 					};
 				};
@@ -205,10 +203,10 @@
 						 */
 						vdev {
 							vdev;
-							notifyid = <2>;
+							notifyid = <16>;
 							/* da align num notifyid */
-							vring-0 = <0x12000 16 64 2>;
-							vring-1 = <0x13000 16 64 3>;
+							vring-0 = <0x12000 16 64 17>;
+							vring-1 = <0x13000 16 64 18>;
 						};
 					};
 				};
