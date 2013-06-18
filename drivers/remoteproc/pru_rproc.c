@@ -31,25 +31,54 @@
 
 #include "remoteproc_internal.h"
 
-#define MAX_PRU_INTS	8
+/* PRU_EVTOUT0 is halt (system call) */
+
+#define MAX_ARM_PRU_INTS	8
+#define MAX_PRU_SYS_EVENTS	64
+#define MAX_PRU_CHANNELS	10
+#define MAX_PRU_HOST_INT	10
+
+struct pruproc;
+
+/* per PRU core control structure */
+struct pruproc_core {
+	int idx;
+	struct pruproc *pruproc;
+	struct rproc *rproc;
+
+	u32 pctrl;
+	u32 pdbg;
+
+	u32 iram[2];
+	u32 dram[2];
+
+	const char *fw_name;
+	unsigned int is_elf : 1;
+	u32 entry_point;
+
+	struct resource_table *table;
+	int table_size;
+};
 
 /* PRU control structure */
 struct pruproc {
-	struct rproc *rproc;
 	struct platform_device *pdev;
-	struct resource_table *table;
-	int table_size;
 	void __iomem *vaddr;
 	dma_addr_t paddr;
 	struct omap_mbox *mbox;
 	struct notifier_block nb;
-	unsigned int pintc_offset;
-	unsigned int pctrl_offset[2];
+	u32 pintc;
+	u32 pdram[2];	/* offset, size */
+
 	int num_irqs;
-	int irqs[MAX_PRU_INTS];
-	int events[MAX_PRU_INTS];
-	const char *fw_name;
-	unsigned int is_elf : 1;
+	int irqs[MAX_ARM_PRU_INTS];
+	int events[MAX_ARM_PRU_INTS];
+	int sysev_to_ch[MAX_PRU_SYS_EVENTS];
+	int ch_to_host[MAX_PRU_CHANNELS];
+
+	/* number of prus */
+	u32 num_prus;
+	struct pruproc_core **pruc;
 };
 
 /* global memory map (for am33xx) (almost the same as local) */
@@ -166,28 +195,24 @@ static inline void pru_write_reg(struct pruproc *pp, unsigned int reg,
 
 static inline u32 pintc_read_reg(struct pruproc *pp, unsigned int reg)
 {
-	return pru_read_reg(pp, reg + pp->pintc_offset);
+	return pru_read_reg(pp, reg + pp->pintc);
 }
 
 static inline void pintc_write_reg(struct pruproc *pp, unsigned int reg,
 		u32 val)
 {
-	return pru_write_reg(pp, reg + pp->pintc_offset, val);
+	return pru_write_reg(pp, reg + pp->pintc, val);
 }
 
-static inline u32 pcntrl_read_reg(struct pruproc *pp, int pru, unsigned int reg)
+static inline u32 pcntrl_read_reg(struct pruproc_core *ppc, unsigned int reg)
 {
-	if ((unsigned int)pru >= 2)
-		return (u32)-1;
-	return pru_read_reg(pp, reg + pp->pctrl_offset[pru]);
+	return pru_read_reg(ppc->pruproc, reg + ppc->pctrl);
 }
 
-static inline void pcntrl_write_reg(struct pruproc *pp, int pru, unsigned int reg,
+static inline void pcntrl_write_reg(struct pruproc_core *ppc, unsigned int reg,
 		u32 val)
 {
-	if ((unsigned int)pru >= 2)
-		return;
-	return pru_write_reg(pp, reg + pp->pctrl_offset[pru], val);
+	return pru_write_reg(ppc->pruproc, reg + ppc->pctrl, val);
 }
 
 static int pruproc_bin_sanity_check(struct rproc *rproc, const struct firmware *fw)
@@ -198,14 +223,28 @@ static int pruproc_bin_sanity_check(struct rproc *rproc, const struct firmware *
 /* Loads the firmware to shared memory. */
 static int pruproc_bin_load_segments(struct rproc *rproc, const struct firmware *fw)
 {
-	struct pruproc *pp = rproc->priv;
-	unsigned int offset = PRU_INSN_RAM0;
-	void __iomem *va = pp->vaddr + offset;
+	struct pruproc_core *ppc = rproc->priv;
+	struct pruproc *pp = ppc->pruproc;
+	struct device *dev = &rproc->dev;
+	unsigned int max_size;
+	void __iomem *va;
 
-	pcntrl_write_reg(pp, 0, PCTRL_CONTROL, CONTROL_SOFT_RST_N);
+	pcntrl_write_reg(ppc, PCTRL_CONTROL, CONTROL_SOFT_RST_N);
+
+	max_size = ppc->iram[1];
+	if (fw->size > max_size) {
+		dev_err(dev, "FW is larger than available space (%u > %u)\n",
+				fw->size, max_size);
+		return -ENOMEM;
+	}
+
+	va = pp->vaddr + ppc->iram[0];
 
 	/* just copy */
 	memcpy(va, fw->data, fw->size);
+
+	/* binary starts from 0 */
+	ppc->entry_point = 0;
 
 	return 0;
 }
@@ -271,7 +310,8 @@ static int
 pruproc_elf_load_segments(struct rproc *rproc, const struct firmware *fw)
 {
 	struct device *dev = &rproc->dev;
-	struct pruproc *pp = rproc->priv;
+	struct pruproc_core *ppc = rproc->priv;
+	struct pruproc *pp = ppc->pruproc;
 	struct elf32_hdr *ehdr;
 	struct elf32_phdr *phdr;
 	int i, ret = 0;
@@ -279,6 +319,8 @@ pruproc_elf_load_segments(struct rproc *rproc, const struct firmware *fw)
 	u32 da, memsz, filesz, offset, flags;
 	u32 sect_offset, sect_maxsz;
 	void *ptr;
+
+	pcntrl_write_reg(ppc, PCTRL_CONTROL, CONTROL_SOFT_RST_N);
 
 	ehdr = (struct elf32_hdr *)elf_data;
 	phdr = (struct elf32_phdr *)(elf_data + le32_to_cpu(ehdr->e_phoff));
@@ -301,7 +343,7 @@ pruproc_elf_load_segments(struct rproc *rproc, const struct firmware *fw)
 					da, memsz, filesz,
 					(flags & PF_R) ? 'R' : '-',
 					(flags & PF_W) ? 'W' : '-',
-					(flags & PF_X) ? 'W' : '-');
+					(flags & PF_X) ? 'E' : '-');
 
 		/* PRU is not a unified address space architecture */
 		/* we need to map differently executable & data segments */
@@ -324,16 +366,21 @@ pruproc_elf_load_segments(struct rproc *rproc, const struct firmware *fw)
 
 		/* text? to code area */
 		if (flags & PF_X) {
-			sect_offset = PRU_INSN_RAM0;
-			sect_maxsz = 0x2000;
+			sect_offset = ppc->iram[0];
+			sect_maxsz = ppc->iram[1];
 		} else {
-			sect_offset = PRU_DATA_RAM0;
-			sect_maxsz = 0x2000;
+			/* only loading in local data ram */
+			sect_offset = ppc->dram[0];
+			sect_maxsz = ppc->dram[1];
 		}
 
-		/* TODO: check for spill over */
+		/* check for overflow */
+		if (da + memsz >= sect_maxsz) {
+			dev_err(dev, "bad fw: does not fit in section\n");
+			ret = -EINVAL;
+		}
 
-		ptr = pp->vaddr + sect_offset + offset;
+		ptr = pp->vaddr + sect_offset + da;
 
 		/* put the segment where the remote processor expects it */
 		if (filesz > 0)
@@ -341,6 +388,8 @@ pruproc_elf_load_segments(struct rproc *rproc, const struct firmware *fw)
 		else
 			memset(ptr, 0, memsz);
 	}
+
+	ppc->entry_point = le32_to_cpu(ehdr->e_entry);
 
 	return ret;
 }
@@ -358,10 +407,10 @@ static struct resource_table *
 pruproc_find_rsc_table(struct rproc *rproc, const struct firmware *fw,
 		     int *tablesz)
 {
-	struct pruproc *pp = rproc->priv;
+	struct pruproc_core *ppc = rproc->priv;
 
-	*tablesz = pp->table_size;
-	return pp->table;
+	*tablesz = ppc->table_size;
+	return ppc->table;
 }
 
 /* PRU binary firmware handler operations */
@@ -382,27 +431,25 @@ const struct rproc_fw_ops pruproc_elf_fw_ops = {
 /* Kick the modem with specified notification id */
 static void pruproc_kick(struct rproc *rproc, int vqid)
 {
-	struct pruproc *pp = rproc->priv;
+	struct pruproc_core *ppc = rproc->priv;
+	struct pruproc *pp = ppc->pruproc;
 	struct device *dev = &pp->pdev->dev;
 
-	dev_dbg(dev, "kick vqid:%d\n", vqid);
+	dev_dbg(dev, "kick #%d vqid:%d\n", ppc->idx, vqid);
 }
 
 /* Start the PRU modem */
 static int pruproc_start(struct rproc *rproc)
 {
-	struct pruproc *pp = rproc->priv;
+	struct pruproc_core *ppc = rproc->priv;
+	struct pruproc *pp = ppc->pruproc;
 	struct device *dev = &pp->pdev->dev;
 
-	dev_dbg(dev, "start pru\n");
+	dev_dbg(dev, "start PRU #%d entry-point 0x%x\n",
+			ppc->idx, ppc->entry_point);
 
-	pcntrl_write_reg(pp, 0, PCTRL_CONTROL, CONTROL_ENABLE);
-
-	dev_dbg(dev, "PCTRL_CONTROL=0x%08x\n",
-			pcntrl_read_reg(pp, 0, PCTRL_CONTROL));
-
-	dev_dbg(dev, "PCTRL_STATUS=0x%08x\n",
-			pcntrl_read_reg(pp, 0, PCTRL_STATUS));
+	pcntrl_write_reg(ppc, PCTRL_CONTROL,
+			CONTROL_ENABLE | ((ppc->entry_point >> 2) << 16));
 
 	return 0;
 }
@@ -422,22 +469,25 @@ static void *pruproc_alloc_vring(struct rproc *rproc,
 		const struct fw_rsc_vdev_vring *vring,
 		int size, dma_addr_t *dma)
 {
-	struct pruproc *pp = rproc->priv;
+	struct pruproc_core *ppc = rproc->priv;
+	struct pruproc *pp = ppc->pruproc;
 	struct device *dev = &pp->pdev->dev;
 	void *va;
 
+#if 0
 	if (vring->da < PRU_SHARED_DATA_RAM ||
 			vring->da >= PRU_SHARED_DATA_RAM + 0x3000) {
 		dev_err(dev, "DA outside of shared DATA RAM\n");
 		return NULL;
 	}
+#endif
 
 	/* simple mapping (global=local) offset */
 	va = pp->vaddr + vring->da;
 	*dma = pp->paddr + vring->da;
 
-	dev_dbg(dev, "%s: da=0x%x, va=%p, dma=0x%llx\n", __func__,
-			vring->da, va, (unsigned long long)*dma);
+	dev_dbg(dev, "%s: PRU #%d da=0x%x, va=%p, dma=0x%llx\n", __func__,
+			ppc->idx, vring->da, va, (unsigned long long)*dma);
 	return va;
 }
 
@@ -462,12 +512,17 @@ static int pruproc_remove(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct pruproc *pp = platform_get_drvdata(pdev);
+	struct pruproc_core *ppc;
+	int i;
 
 	dev_dbg(dev, "remove pru\n");
 
 	/* Unregister as remoteproc device */
-	rproc_del(pp->rproc);
-	rproc_put(pp->rproc);
+	for (i = pp->num_prus - 1; i >= 0; i--) {
+		ppc = pp->pruc[i];
+		rproc_del(ppc->rproc);
+		rproc_put(ppc->rproc);
+	}
 
 	platform_set_drvdata(pdev, NULL);
 
@@ -490,9 +545,8 @@ static irqreturn_t pru_handler(int irq, void *data)
 
 	ev = pp->events[i];
 
+	/* first, check whether the interrupt is enabled */
 	val = pintc_read_reg(pp, PINTC_HIER);
-
-	/* check bit of interrupt */
 	if ((val & (1 << ev)) == 0)
 		return IRQ_NONE;
 
@@ -501,10 +555,11 @@ static irqreturn_t pru_handler(int irq, void *data)
 	if ((val & HIPIR_NOPEND) != 0)
 		return IRQ_NONE;
 
-	/* disable the interrupt */
-	dev_info(dev, "Got interrupt #%d, event %d\n", irq, ev);
+	dev_dbg(dev, "Got interrupt #%d, event %d, sysint %d\n", irq, ev,
+			val & 0x3f);
 
-	pintc_write_reg(pp, PINTC_HIDISR, (1 << ev));
+	/* disable the interrupt */
+	pintc_write_reg(pp, PINTC_HIDISR, ev);
 
 	return IRQ_HANDLED;
 }
@@ -522,12 +577,13 @@ struct pru_resource_table {
 
 } __packed;
 
-static int build_rsc_table(struct platform_device *pdev, struct pruproc *pp)
+static int build_rsc_table(struct platform_device *pdev,
+		struct device_node *node, struct pruproc_core *ppc)
 {
 	struct device *dev = &pdev->dev;
-	struct device_node *node = dev->of_node;
 	struct device_node *rnode = NULL;	/* resource table node */
 	struct device_node *rvnode = NULL;	/* vdev node */
+	// struct pruproc *pp = ppc->pruproc;
 	struct resource_table *rsc;
 	struct fw_rsc_hdr *rsc_hdr;
 	struct fw_rsc_vdev *rsc_vdev;
@@ -587,8 +643,8 @@ static int build_rsc_table(struct platform_device *pdev, struct pruproc *pp)
 		err = -ENOMEM;
 		goto err_fail;
 	}
-	pp->table = table;
-	pp->table_size = table_size;
+	ppc->table = table;
+	ppc->table_size = table_size;
 
 	p = table;	/* pointer at start */
 
@@ -615,8 +671,8 @@ static int build_rsc_table(struct platform_device *pdev, struct pruproc *pp)
 		/* vdev */
 		rsc_vdev = p;
 		p += sizeof(*rsc_vdev);
-		/* rpmsg for now */
-		rsc_vdev->id = VIRTIO_ID_RPMSG;
+		/* Use serial (dumb char device) for now */
+		rsc_vdev->id = VIRTIO_ID_RPROC_SERIAL;
 		err = of_property_read_u32(rvnode, "notifyid", &val);
 		if (err != 0) {
 			dev_err(dev, "no notifyid vdev property\n");
@@ -657,17 +713,205 @@ err_fail:
 	return err;
 }
 
-/* Handle probe of a modem device */
+static int read_map_property(struct device *dev,
+		struct device_node *node, const char *propname,
+		int *map, int max_idx, int max_val)
+{
+	struct property *prop;
+	int i, idx, val, cnt, proplen, err;
+	u32 *arr, *p;
+
+	/* check node & propname */
+	if (node == NULL || propname == NULL) {
+		dev_err(dev, "Bad arguments\n");
+		return -EINVAL;
+	}
+
+	/* find property */
+	prop = of_find_property(node, propname, &proplen);
+	if (prop == NULL) {
+		dev_err(dev, "Can't find %s property\n", propname);
+		return -ENOENT;
+	}
+
+	/* verify valid size (must be pairs of u32 items) */
+	if ((proplen % (sizeof(u32) * 2)) != 0) {
+		dev_err(dev, "Bad length (%d) of %s property\n",
+				proplen, propname);
+		return -EINVAL;
+	}
+
+	/* allocate temporary buffer */
+	arr = devm_kzalloc(dev, proplen, GFP_KERNEL);
+	if (arr == NULL) {
+		dev_err(dev, "Alloc failed on %s property\n", propname);
+		return -ENOMEM;
+	}
+
+	/* the number of pairs */
+	cnt = proplen / (sizeof(arr[0]) * 2);
+
+	/* now read it */
+	err = of_property_read_u32_array(node, propname, arr, cnt * 2);
+	if (err != 0) {
+		dev_err(dev, "Failed to read %s property\n", propname);
+		return err;
+	}
+
+	/* now read pairs and fill in the map */
+	for (i = 0, p = arr; i < cnt; i++, p += 2) {
+		idx = p[0];
+		val = p[1];
+		if ((unsigned int)idx >= max_idx) {
+			dev_err(dev, "%s[%d] bad map idx %d\n",
+					propname, i, idx);
+			return err;
+		}
+		if ((unsigned int)val >= max_val) {
+			dev_err(dev, "%s[%d] bad map val %d\n",
+					propname, i, val);
+			return err;
+		}
+		/* fill in map */
+		map[idx] = val;
+		dev_info(dev, "%s [%d] <- %d\n", propname, idx, val);
+	}
+
+	devm_kfree(dev, arr);
+
+	return 0;
+}
+
+static int configure_pintc(struct platform_device *pdev, struct pruproc *pp)
+{
+	struct device *dev = &pdev->dev;
+	struct device_node *node = dev->of_node;
+	int err, i, idx, ch, host;
+	uint64_t sysevt_mask;
+	uint32_t ch_mask;
+	uint32_t host_mask;
+	u32 val;
+
+	/* retreive the maps */
+	err = read_map_property(dev, node, "sysevent-to-channel-map",
+			pp->sysev_to_ch, MAX_PRU_SYS_EVENTS, MAX_PRU_CHANNELS);
+	if (err != 0)
+		return err;
+
+	err = read_map_property(dev, node, "channel-to-host-interrupt-map",
+			pp->ch_to_host, MAX_PRU_CHANNELS, MAX_PRU_HOST_INT);
+	if (err != 0)
+		return err;
+
+	/* now configure the pintc appropriately */
+
+	/* configure polarity and type (all active high & pulse) */
+	pintc_write_reg(pp, PINTC_SIPR0, 0xffffffff);
+	pintc_write_reg(pp, PINTC_SIPR1, 0xffffffff);
+
+	/* clear all channel mapping registers */
+	for (i = PINTC_CMR0; i <= PINTC_CMR15; i += 4)
+		pintc_write_reg(pp, i, 0);
+
+	sysevt_mask = 0;
+	ch_mask = 0;
+	host_mask = 0;
+
+	/* set channel mapping registers we have */
+	for (i = 0; i < ARRAY_SIZE(pp->sysev_to_ch); i++) {
+
+		ch = pp->sysev_to_ch[i];
+		if (ch < 0)
+			continue;
+
+		/* CMR format: ---CH3---CH2---CH1---CH0 */
+
+		/* 4 settings in each register */
+		idx = i / 4;
+
+		/* update CMR entry */
+		val  = pintc_read_reg(pp, PINTC_CMR0 + idx * 4);
+		val |= (u32)ch << ((i & 3) * 8);
+		pintc_write_reg(pp, PINTC_CMR0 + idx * 4, val);
+
+		/* set bit in the sysevent mask */
+		sysevt_mask |= 1LLU << i;
+		/* set bit in the channel mask */
+		ch_mask |= 1U << ch;
+
+		dev_dbg(dev, "SYSEV%d -> CH%d (CMR%d 0x%08x)\n",
+				i, ch, idx,
+				pintc_read_reg(pp, PINTC_CMR0 + idx * 4));
+	}
+
+	/* clear all host mapping registers */
+	for (i = PINTC_HMR0; i <= PINTC_HMR2; i += 4)
+		pintc_write_reg(pp, i, 0);
+
+	/* set host mapping registers we have */
+	for (i = 0; i < ARRAY_SIZE(pp->ch_to_host); i++) {
+
+		host = pp->ch_to_host[i];
+		if (host < 0)
+			continue;
+
+		/* HMR format: ---HI3---HI2---HI1---HI0 */
+
+		/* 4 settings in each register */
+		idx = i / 4;
+
+		/* update HMR entry */
+		val  = pintc_read_reg(pp, PINTC_HMR0 + idx * 4);
+		val |= (u32)host << ((i & 3) * 8);
+		pintc_write_reg(pp, PINTC_HMR0 + idx * 4, val);
+
+		/* set bit in the channel mask */
+		ch_mask |= 1U << i;
+		/* set bit in the sysevent mask */
+		host_mask |= 1U << host;
+
+		dev_dbg(dev, "CH%d -> HOST%d (HMR%d 0x%08x)\n",
+				i, host, idx,
+				pintc_read_reg(pp, PINTC_HMR0 + idx * 4));
+	}
+
+	/* configure polarity and type (all active high & pulse) */
+	pintc_write_reg(pp, PINTC_SITR0, 0);
+	pintc_write_reg(pp, PINTC_SITR1, 0);
+
+	dev_dbg(dev, "sysevt_mask=0x%016llx ch_mask=0x%08x host_mask=0x%08x\n",
+			sysevt_mask, ch_mask, host_mask);
+
+	/* enable sys-events */
+	pintc_write_reg(pp, PINTC_ESR0, (u32)sysevt_mask);
+	pintc_write_reg(pp, PINTC_SECR0, (u32)sysevt_mask);
+	pintc_write_reg(pp, PINTC_ESR1, (u32)(sysevt_mask >> 32));
+	pintc_write_reg(pp, PINTC_SECR1, (u32)(sysevt_mask >> 32));
+
+	/* enable host interrupts */
+	for (i = 0; i < MAX_PRU_HOST_INT; i++) {
+		if ((host_mask & (1 << i)) != 0)
+			pintc_write_reg(pp, PINTC_HIEISR, i);
+	}
+
+	/* global interrupt enable */
+	pintc_write_reg(pp, PINTC_GER, 1);
+
+	return 0;
+}
+
 static int pruproc_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
+	struct device_node *node = dev->of_node;
+	struct device_node *pnode = NULL;
 	struct pruproc *pp;
+	struct pruproc_core *ppc;
 	const char *fw_name;
 	int pm_get = 0;
 	struct rproc *rproc = NULL;
 	struct resource *res;
 	struct pinctrl *pinctrl;
-	u32 val;
 	int err, i, irq;
 
 	/* get pinctrl */
@@ -683,7 +927,7 @@ static int pruproc_probe(struct platform_device *pdev)
 	}
 
 	/* we only work on OF */
-	if (dev->of_node == NULL) {
+	if (node == NULL) {
 		dev_err(dev, "Only OF configuration supported\n");
 		err = -ENODEV;
 		goto err_fail;
@@ -703,43 +947,33 @@ static int pruproc_probe(struct platform_device *pdev)
 		goto err_fail;
 	}
 
-	err = of_property_read_string(dev->of_node, "ti,firmware", &fw_name);
-	if (err != 0) {
-		dev_err(dev, "can't find fw property %s\n", "ti,firmware");
-		goto err_fail;
-	}
-	rproc = rproc_alloc(dev, pdev->name, &pruproc_ops, fw_name,
-			sizeof(*pp));
-	if (!rproc) {
-		dev_err(dev, "rproc_alloc failed\n");
+	pp = devm_kzalloc(dev, sizeof(*pp), GFP_KERNEL);
+	if (pp == NULL) {
+		dev_err(dev, "failed to allocate pruproc\n");
 		err = -ENOMEM;
 		goto err_fail;
+
 	}
 
-	pp = rproc->priv;
+	/* link the device with the pruproc */
+	platform_set_drvdata(pdev, pp);
 	pp->pdev = pdev;
-	pp->rproc = rproc;
-	pp->fw_name = fw_name;
 
-	/* zero the irqs */
+	/* prepare the irqs */
 	for (i = 0; i < ARRAY_SIZE(pp->irqs); i++)
 		pp->irqs[i] = -1;
 
+	/* prepare the events */
 	for (i = 0; i < ARRAY_SIZE(pp->events); i++)
 		pp->events[i] = -1;
 
-	err = of_property_read_u32(dev->of_node, "ti,pintc-offset", &val);
-	if (err != 0) {
-		dev_err(dev, "no ti,pintc-offset property\n");
-		goto err_fail;
-	}
-	pp->pintc_offset = val;
+	/* prepare the sysevevent to channel map */
+	for (i = 0; i < ARRAY_SIZE(pp->sysev_to_ch); i++)
+		pp->sysev_to_ch[i] = -1;
 
-	/* check firmware type */
-	pp->is_elf = of_property_read_bool(dev->of_node, "ti,elf");
-
-	pp->pctrl_offset[0] = PRU_PRU0_CONTROL;
-	pp->pctrl_offset[1] = PRU_PRU1_CONTROL;
+	/* prepare the channel to hostint map */
+	for (i = 0; i < ARRAY_SIZE(pp->ch_to_host); i++)
+		pp->ch_to_host[i] = -1;
 
 	for (i = 0; i < ARRAY_SIZE(pp->irqs); i++) {
 
@@ -758,17 +992,14 @@ static int pruproc_probe(struct platform_device *pdev)
 		}
 	}
 	pp->num_irqs = i;
+	dev_info(dev, "#%d PRU interrupts registered\n", pp->num_irqs);
 
-	err = of_property_read_u32_array(dev->of_node, "events",
-			pp->events, pp->num_irqs);
+	err = of_property_read_u32_array(node, "events", pp->events,
+			pp->num_irqs);
 	if (err != 0) {
 		dev_err(dev, "Failed to read events array\n");
 		goto err_fail;
 	}
-
-	dev_info(dev, "#%d PRU interrupts registered\n", pp->num_irqs);
-
-	platform_set_drvdata(pdev, pp);
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (res == NULL) {
@@ -783,30 +1014,138 @@ static int pruproc_probe(struct platform_device *pdev)
 		goto err_fail;
 	}
 
-	/* build the resource table from DT */
-	err = build_rsc_table(pdev, pp);
+	err = of_property_read_u32(node, "pintc", &pp->pintc);
 	if (err != 0) {
-		dev_err(dev, "failed to build resource table\n");
+		dev_err(dev, "no pintc property\n");
 		goto err_fail;
 	}
 
-	/* Set the PRU specific firmware handler */
-	if (!pp->is_elf)
-		rproc->fw_ops = &pruproc_bin_fw_ops;
-	else
-		rproc->fw_ops = &pruproc_elf_fw_ops;
-
-	/* Register as a remoteproc device */
-	err = rproc_add(rproc);
-	if (err) {
-		dev_err(dev, "rproc_add failed\n");
+	err = of_property_read_u32_array(node, "pdram", pp->pdram,
+			ARRAY_SIZE(pp->pdram));
+	if (err != 0) {
+		dev_err(dev, "no pintc property\n");
 		goto err_fail;
 	}
+
+	/* configure PRU interrupt controller from DT */ 
+	err = configure_pintc(pdev, pp);
+	if (err != 0) {
+		dev_err(dev, "failed to configure pintc\n");
+		goto err_fail;
+	}
+
+	/* count number of child nodes with a firmwary property */
+	pp->num_prus = 0;
+	for_each_child_of_node(node, pnode) {
+		if (of_find_property(pnode, "firmware", NULL))
+			pp->num_prus++;
+	}
+	pnode = NULL;
+
+	/* found any? */
+	if (pp->num_prus == 0) {
+		dev_err(dev, "no pru nodes found\n");
+		err = -EINVAL;
+		goto err_fail;
+	}
+	dev_info(dev, "found #%d PRUs\n", pp->num_prus);
+
+	/* allocate pointers */
+	pp->pruc = devm_kzalloc(dev, sizeof(*pp->pruc) * pp->num_prus,
+			GFP_KERNEL);
+	if (pp->pruc == NULL) {
+		dev_err(dev, "Failed to allocate PRU table\n");
+		err = -ENOMEM;
+		goto err_fail;
+	}
+
+	/* now iterate over all the pru nodes */
+	i = 0;
+	for_each_child_of_node(node, pnode) {
+
+		/* only nodes with firmware are PRU nodes */
+		if (of_find_property(pnode, "firmware", NULL) == NULL)
+			continue;
+
+		err = of_property_read_string(pnode, "firmware", &fw_name);
+		if (err != 0) {
+			dev_err(dev, "can't find fw property %s\n", "firmware");
+			of_node_put(pnode);
+			goto err_fail;
+		}
+
+		rproc = rproc_alloc(dev, pdev->name, &pruproc_ops, fw_name,
+				sizeof(*ppc));
+		if (!rproc) {
+			dev_err(dev, "rproc_alloc failed\n");
+			err = -ENOMEM;
+			goto err_fail;
+		}
+		ppc = rproc->priv;
+		ppc->idx = i;
+		ppc->pruproc = pp;
+		ppc->rproc = rproc;
+
+		err = of_property_read_u32_array(pnode, "iram", ppc->iram,
+				ARRAY_SIZE(ppc->iram));
+		if (err != 0) {
+			dev_err(dev, "no iram property\n");
+			goto err_fail;
+		}
+
+		err = of_property_read_u32_array(pnode, "dram", ppc->dram,
+				ARRAY_SIZE(ppc->dram));
+		if (err != 0) {
+			dev_err(dev, "no dram property\n");
+			goto err_fail;
+		}
+
+		err = of_property_read_u32(pnode, "pctrl", &ppc->pctrl);
+		if (err != 0) {
+			dev_err(dev, "no pctrl property\n");
+			goto err_fail;
+		}
+
+		err = of_property_read_u32(pnode, "pdbg", &ppc->pdbg);
+		if (err != 0) {
+			dev_err(dev, "no pdbg property\n");
+			goto err_fail;
+		}
+
+		/* check firmware type */
+		ppc->is_elf = of_property_read_bool(pnode, "firmware-elf");
+
+		/* build the resource table from DT */
+		err = build_rsc_table(pdev, pnode, ppc);
+		if (err != 0) {
+			dev_err(dev, "failed to build resource table\n");
+			goto err_fail;
+		}
+
+		/* Set the PRU specific firmware handler */
+		if (!ppc->is_elf)
+			rproc->fw_ops = &pruproc_bin_fw_ops;
+		else
+			rproc->fw_ops = &pruproc_elf_fw_ops;
+
+		/* Register as a remoteproc device */
+		err = rproc_add(rproc);
+		if (err) {
+			dev_err(dev, "rproc_add failed\n");
+			goto err_fail;
+		}
+
+		i++;
+	}
+	pnode = NULL;
 
 	dev_info(dev, "Loaded OK\n");
 
 	return 0;
 err_fail:
+	/* NULL is OK */
+	of_node_put(pnode);
+
 	if (rproc)
 		rproc_put(rproc);
 	if (pm_get)

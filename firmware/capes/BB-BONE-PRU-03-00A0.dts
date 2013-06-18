@@ -37,7 +37,7 @@
 					0x1a4 0x25	/* mcasp0_fsr.pr1_pru0_pru_r30_5, MODE5 | OUTPUT | PRU */
 				>;
 			};
-		};	
+		};
 	};
 
 	fragment@2 {
@@ -61,27 +61,155 @@
 
 				ti,hwmods = "pruss";
 				ti,deassert-hard-reset = "pruss", "pruss";
-				ti,firmware = "prutest.elf";
-				ti,elf;
 				interrupt-parent = <&intc>;
-				ti,pintc-offset = <0x20000>;
+
+				/* interrupts on the host */
 				interrupts = <20 21 22 23 24 25 26 27>;
-				events     = < 3  4  5  6  7  8  9 10>;
 
-				resource_table {
-					resource-table;
-					version = <1>;
+				/* events these interrupts map to (host interrupt) */
+				events = <2 3 4 5 6 7 8 9>;
 
-					/*
-					 * without a device, remoteproc doesn't
-					 * boot the processor
-					 */
-					vdev {
-						vdev;
-						notifyid = <0>;
-						/* da align num notifyid */
-						vring-0 = <0x10000 16 64 1>; 
-						vring-1 = <0x11000 16 64 1>; 
+				/* PRU interrupt controller offset */
+				pintc = <0x20000>;
+
+				/* 12K Shared Data RAM offset */
+				pdram = <0x10000 0x03000>;
+
+				/*
+				 * SYSEVENT ids
+				 *
+				 * - PRU/ARM communication
+				 * PRU0_PRU1	17
+				 * PRU1_PRU0	18
+				 * PRU0_ARM	19
+				 * PRU1_ARM	20
+				 * ARM_PRU0	21
+				 * ARM_PRU1	22
+				 *
+				 * Full SYSEVENT list
+				 *
+				 * parity_err_intr_pend		0
+				 * pru0_r31_status_cnt16	1
+				 * pru1_r31_status_cnt16	2
+				 * uart_urxevt_intr_req		4
+				 * uart_utxevt_intr_req		5
+				 * uart_uint_intr_req		6
+				 * iep_tim_cap_cmp_pend		7
+				 * ecap_intr_req		15
+				 * pru_mst_intr[0-15]_intr_req	16-31
+				 * nirq				32 (UART1)
+				 * mcasp_x_intr_pend		33 (MCASP1)
+				 * mcasp_r_intr_pend		34 (MCASP1)
+				 * ecap_intr_intr_pend		35 (ECAP1)
+				 * ecap_intr_intr_pend		36 (ECAP2)
+				 * epwm_intr_intr_pend		37 (eHRPWM2)
+				 * dcan_uerr			38 (DCAN0)
+				 * dcan_int1			39 (DCAN0)
+				 * dcan_intr			40 (DCAN0)
+				 * POINTRPEND			41 (I2C0)
+				 * ecap_intr_intr_pend		42 (ECAP0)
+				 * epwm_intr_intr_pend		43 (eHRPWM0)
+				 * SINTERRUPTN			44 (McSPI0)
+				 * eqep_intr_intr_pend		45 (eQEP0)
+				 * epwm_intr_intr_pend		46 (eHRPWM1)
+				 * c0_misc_pend			47 3PGSW (GEMAC)
+				 * c0_tx_pend			48 3PGSW (GEMAC)
+				 * c0_rx_pend			49 3PGSW (GEMAC)
+				 * c0_rx_thresh_pend		50 3PGSW (GEMAC)
+				 * nirq				51 (UART0)
+				 * nirq				52 (UART2)
+				 * gen_intr_pend		53 (ADC_TSC)
+				 * mcasp_r_intr_pend		54 (McASP0)
+				 * mcasp_x_intr_pend		55 (McASP1)
+				 * pwm_trip_zone		56 (eHRPWM0/eHRPWM1/eHRP WM2)
+				 * POINTRPEND1			57 (GPIO0)
+				 * Emulation Suspend Signal	58 (Debugss)
+				 * initiator_sinterrupt_q_n2	59 (Mbox0 - mail_u2_irq (mailbox interrupt for pru1))
+				 * initiator_sinterrupt_q_n1	60 (Mbox0 - mail_u1_irq (mailbox interrupt for pru0))
+				 * tptc_erint_pend_po		61 (TPTC0 (EDMA))
+				 * tpcc_errint_pend_po		62 (TPCC (EDMA))
+				 * tpcc_int_pend_po1		63 (TPCC (EDMA))
+				 *
+				 * HOST interrupt ids
+				 *
+				 * PRU0		0
+				 * PRU1		1
+				 * EVTOUT0-7	2-9
+				 */
+
+				/* sysevent map to intc channel */
+				sysevent-to-channel-map =
+					<17 1>,	/* PRU0_PRU1 -> CH1 */
+					<18 0>,	/* PRU1_PRU0 -> CH0 */
+					<19 2>,	/* PRU0_ARM  -> CH2 */
+					<20 3>,	/* PRU1_ARM  -> CH3 */
+					<21 0>,	/* ARM_PRU0  -> CH0 */
+					<22 1>;	/* ARM_PRU1  -> CH1 */
+
+				/* channel to host interrupt map */
+				channel-to-host-interrupt-map =
+					<0 0>,	/* CH0 -> PRU0	  */
+					<1 1>,	/* CH1 -> PRU1    */
+					<2 2>,	/* CH2 -> EVTOUT0 */
+					<3 3>;	/* CH3 -> EVTOUT1 */
+
+				num-prus = <2>;
+
+				/* definition for the first PRU */
+				pru0 {
+					iram = <0x34000 0x02000>;	/* code ram (8K) */
+					dram = <0x00000 0x02000>;	/* data ram (8K) */
+
+					pctrl = <0x22000>;
+					pdbg  = <0x22400>;
+
+					firmware-elf;
+					firmware = "prutest.elf";
+
+					resource_table {
+						resource-table;
+						version = <1>;
+
+						/*
+						 * without a device, remoteproc doesn't
+						 * boot the processor
+						 */
+						vdev {
+							vdev;
+							notifyid = <0>;
+							/* da align num notifyid */
+							vring-0 = <0x10000 16 64 0>;
+							vring-1 = <0x11000 16 64 1>;
+						};
+					};
+				};
+
+				/* definition for the second PRU */
+				pru1 {
+					iram = <0x38000 0x02000>;	/* code ram (8K) */
+					dram = <0x02000 0x02000>;	/* data ram (8K) */
+
+					pctrl = <0x24000>;
+					pdbg  = <0x24400>;
+
+					firmware-elf;
+					// firmware = "prutest-1.elf";
+
+					resource_table {
+						resource-table;
+						version = <1>;
+
+						/*
+						 * without a device, remoteproc doesn't
+						 * boot the processor
+						 */
+						vdev {
+							vdev;
+							notifyid = <2>;
+							/* da align num notifyid */
+							vring-0 = <0x12000 16 64 2>;
+							vring-1 = <0x13000 16 64 3>;
+						};
 					};
 				};
 			};
