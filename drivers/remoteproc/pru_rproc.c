@@ -49,8 +49,8 @@ struct pruproc_core {
 	u32 pctrl;
 	u32 pdbg;
 
-	u32 iram[2];
-	u32 dram[2];
+	u32 iram, iram_sz, iram_da;		/* global, size, own */
+	u32 dram, dram_sz, dram_da, dram_oda;	/* global, size, own, other */
 
 	const char *fw_name;
 	unsigned int is_elf : 1;
@@ -68,7 +68,7 @@ struct pruproc {
 	struct omap_mbox *mbox;
 	struct notifier_block nb;
 	u32 pintc;
-	u32 pdram[2];	/* offset, size */
+	u32 pdram, pdram_sz, pdram_da;
 
 	int num_irqs;
 	int irqs[MAX_ARM_PRU_INTS];
@@ -232,6 +232,176 @@ static inline void pdbg_write_reg(struct pruproc_core *ppc, unsigned int reg,
 	return pru_write_reg(ppc->pruproc, reg + ppc->pdbg, val);
 }
 
+/* convert 32 bit Data device address to a virtual (and physical) host addr */
+static void * __iomem pru_d_da_to_va(struct pruproc_core *ppc, u32 da,
+		dma_addr_t *pa)
+{
+	struct pruproc *pp = ppc->pruproc;
+	u32 offset;
+
+	/* check own data ram first */
+	if (da >= ppc->dram_da && da < ppc->dram_da + ppc->dram_sz)
+		offset = ppc->dram + da - ppc->dram_da;
+	/* check other's data ram */
+	else if (da >= ppc->dram_oda && da < ppc->dram_oda + ppc->dram_sz)
+		offset = ppc->dram + da - ppc->dram_oda;
+	/* shared data */
+	else if (da >= pp->pdram_da && da < pp->pdram_da + pp->pdram_sz)
+		offset = pp->pdram + da - pp->pdram_da;
+	else
+		return NULL;
+
+	if (pa)
+		*pa = pp->paddr + offset;
+	return pp->vaddr + offset;
+}
+
+static void * __iomem pru_i_da_to_va(struct pruproc_core *ppc, u32 da,
+		dma_addr_t *pa)
+{
+	struct pruproc *pp = ppc->pruproc;
+	u32 offset;
+
+	/* check whether is within the iram space */
+	if (da >= ppc->iram_da && da < ppc->iram-da + ppc->iram_sz)
+		offset = ppc->iram + da - ppc->iram_da;
+	else
+		return NULL;
+
+	if (pa)
+		*pa = pp->paddr + offset;
+	return pp->vaddr + offset;
+}
+
+static void * __iomem pru_d_da_to_va_block(struct pruproc_core *ppc, u32 da,
+		dma_addr_t *pa, int size)
+{
+	void * __iomem va_start;
+	void * __iomem va_end;
+
+	/* make sure size is not bogus */
+	if (size <= 0)
+		return NULL;
+
+	/* get start vaddr of device address (D) */
+	va_start = pru_d_da_to_va(ppc, da, pa);
+	if (va_start == NULL)
+		return NULL;
+
+	/* get end vaddr of device address (D) */
+	va_end = pru_d_da_to_va(ppc, da + size - 1, NULL);
+	if (va_end == NULL)
+		return NULL;
+
+	/* for the block to be valid the VAs must be consecutive */
+	if ((va_end - va_start) != (size - 1))
+		return NULL;
+
+	/* all good */
+	return va_start;
+}
+
+static void * __iomem pru_i_da_to_va_block(struct pruproc_core *ppc, u32 da,
+		dma_addr_t *pa, int size)
+{
+	void * __iomem va_start;
+	void * __iomem va_end;
+
+	/* make sure size is not bogus */
+	if (size <= 0)
+		return NULL;
+
+	/* get start vaddr of device address (I) */
+	va_start = pru_i_da_to_va(ppc, da, pa);
+	if (va_start == NULL)
+		return NULL;
+
+	/* get end vaddr of device address (I) */
+	va_end = pru_i_da_to_va(ppc, da + size - 1, NULL);
+	if (va_end == NULL)
+		return NULL;
+
+	/* for the block to be valid the VAs must be consecutive */
+	if ((va_end - va_start) != (size - 1))
+		return NULL;
+
+	/* all good */
+	return va_start;
+}
+
+static int pru_i_read_u32(struct pruproc_core *ppc, u32 da, u32 *val)
+{
+	void * __iomem va;
+
+	/* verify it's a word address */
+	if (da & 3)
+		return -EINVAL;
+
+	/* get vaddr of device address (I) */
+	va = pru_i_da_to_va_block(ppc, da, NULL, sizeof(u32));
+	if (va == NULL)
+		return -EFAULT;
+
+	if (val)
+		*val = le32_to_cpu(*(u32 *)va);
+
+	return 0;
+}
+
+static int pru_d_read_u32(struct pruproc_core *ppc, u32 da, u32 *val)
+{
+	void * __iomem va;
+
+	/* verify it's a word address */
+	if (da & 3)
+		return -EINVAL;
+
+	/* get vaddr of device address (I) */
+	va = pru_d_da_to_va_block(ppc, da, NULL, sizeof(u32));
+	if (va == NULL)
+		return -EINVAL;
+
+	if (val)
+		*val = le32_to_cpu(*(u32 *)va);
+
+	return 0;
+}
+
+static int pru_i_write_u32(struct pruproc_core *ppc, u32 da, u32 val)
+{
+	void * __iomem va;
+
+	/* verify it's a word address */
+	if (da & 3)
+		return -EINVAL;
+
+	/* get vaddr of device address (I) */
+	va = pru_i_da_to_va_block(ppc, da, NULL, sizeof(u32));
+	if (va == NULL)
+		return -EINVAL;
+
+	*(u32 *)va = cpu_to_le32(val);
+
+	return 0;
+}
+
+static int pru_d_write_u32(struct pruproc_core *ppc, u32 da, u32 val)
+{
+	void * __iomem va;
+
+	/* verify it's a word address */
+	if (da & 3)
+		return -EINVAL;
+
+	/* get vaddr of device address (I) */
+	va = pru_d_da_to_va_block(ppc, da, NULL, sizeof(u32));
+	if (va == NULL)
+		return -EINVAL;
+
+	*(u32 *)va = cpu_to_le32(val);
+	return 0;
+}
+
 static int pruproc_bin_sanity_check(struct rproc *rproc, const struct firmware *fw)
 {
 	return 0;
@@ -241,27 +411,23 @@ static int pruproc_bin_sanity_check(struct rproc *rproc, const struct firmware *
 static int pruproc_bin_load_segments(struct rproc *rproc, const struct firmware *fw)
 {
 	struct pruproc_core *ppc = rproc->priv;
-	struct pruproc *pp = ppc->pruproc;
 	struct device *dev = &rproc->dev;
-	unsigned int max_size;
 	void __iomem *va;
 
 	pcntrl_write_reg(ppc, PCTRL_CONTROL, CONTROL_SOFT_RST_N);
 
-	max_size = ppc->iram[1];
-	if (fw->size > max_size) {
-		dev_err(dev, "FW is larger than available space (%u > %u)\n",
-				fw->size, max_size);
+	/* binary starts from 0 */
+	ppc->entry_point = 0;
+
+	va = pru_i_da_to_va_block(ppc, ppc->entry_point, NULL, fw->size);
+	if (va == NULL) {
+		dev_err(dev, "FW is larger than available space (%u)\n",
+				fw->size);
 		return -ENOMEM;
 	}
 
-	va = pp->vaddr + ppc->iram[0];
-
 	/* just copy */
 	memcpy(va, fw->data, fw->size);
-
-	/* binary starts from 0 */
-	ppc->entry_point = 0;
 
 	return 0;
 }
@@ -328,14 +494,12 @@ pruproc_elf_load_segments(struct rproc *rproc, const struct firmware *fw)
 {
 	struct device *dev = &rproc->dev;
 	struct pruproc_core *ppc = rproc->priv;
-	struct pruproc *pp = ppc->pruproc;
 	struct elf32_hdr *ehdr;
 	struct elf32_phdr *phdr;
 	int i, ret = 0;
 	const u8 *elf_data = fw->data;
 	u32 da, memsz, filesz, offset, flags;
-	u32 sect_offset, sect_maxsz;
-	void *ptr;
+	void * __iomem va;
 
 	pcntrl_write_reg(ppc, PCTRL_CONTROL, CONTROL_SOFT_RST_N);
 
@@ -379,31 +543,27 @@ pruproc_elf_load_segments(struct rproc *rproc, const struct firmware *fw)
 			break;
 		}
 
-		/* we can't use rproc_da_to_va */
+		/* we can't use rproc_da_to_va (it relies on carveouts) */
 
 		/* text? to code area */
-		if (flags & PF_X) {
-			sect_offset = ppc->iram[0];
-			sect_maxsz = ppc->iram[1];
-		} else {
-			/* only loading in local data ram */
-			sect_offset = ppc->dram[0];
-			sect_maxsz = ppc->dram[1];
-		}
+		if (flags & PF_X)
+			va = pru_i_da_to_va_block(ppc, da, NULL, memsz);
+		else
+			va = pru_d_da_to_va_block(ppc, da, NULL, memsz);
 
-		/* check for overflow */
-		if (da + memsz >= sect_maxsz) {
-			dev_err(dev, "bad fw: does not fit in section\n");
+		/* check if valid section */
+		if (va == NULL) {
+			dev_err(dev, "fw: #%d @0x%x sz 0x%x bad\n",
+					i, da, memsz);
 			ret = -EINVAL;
+			break;
 		}
-
-		ptr = pp->vaddr + sect_offset + da;
 
 		/* put the segment where the remote processor expects it */
 		if (filesz > 0)
-			memcpy(ptr, elf_data + offset, filesz);
+			memcpy(va, elf_data + offset, filesz);
 		else
-			memset(ptr, 0, memsz);
+			memset(va, 0, memsz);
 	}
 
 	ppc->entry_point = le32_to_cpu(ehdr->e_entry);
@@ -489,22 +649,13 @@ static void *pruproc_alloc_vring(struct rproc *rproc,
 	struct pruproc_core *ppc = rproc->priv;
 	struct pruproc *pp = ppc->pruproc;
 	struct device *dev = &pp->pdev->dev;
-	void *va;
+	void * __iomem va;
 
-#if 0
-	if (vring->da < PRU_SHARED_DATA_RAM ||
-			vring->da >= PRU_SHARED_DATA_RAM + 0x3000) {
-		dev_err(dev, "DA outside of shared DATA RAM\n");
-		return NULL;
-	}
-#endif
+	va = pru_d_da_to_va_block(ppc, vring->da, dma, size);
 
-	/* simple mapping (global=local) offset */
-	va = pp->vaddr + vring->da;
-	*dma = pp->paddr + vring->da;
+	dev_dbg(dev, "PRU vring #%d da=0x%x, va=%p, dma=0x%llx size=%u\n",
+		ppc->idx, vring->da, va, (unsigned long long)*dma, size);
 
-	dev_dbg(dev, "%s: PRU #%d da=0x%x, va=%p, dma=0x%llx\n", __func__,
-			ppc->idx, vring->da, va, (unsigned long long)*dma);
 	return va;
 }
 
@@ -558,26 +709,30 @@ static int pru_handle_syscall(struct pruproc_core *ppc)
 	struct pruproc *pp = ppc->pruproc;
 	struct device *dev = &pp->pdev->dev;
 	u32 val, addr, scno, arg0;
-	char *ptr;
-	int valid_sc;
+	int err, valid_sc;
+	void * __iomem va;
 
 	/* check whether it's halted */
 	val = pcntrl_read_reg(ppc, PCTRL_CONTROL);
 	if ((val & CONTROL_RUNSTATE) != 0) {
 		dev_dbg(dev, "PRU #%d not halted\n",
 				ppc->idx);
-		return -1;
+		return -EINVAL;
 	}
 
 	/* read the instruction */
-	addr = pcntrl_read_reg(ppc, PCTRL_STATUS);
-	val = *(u32 *)(pp->vaddr + ppc->iram[0] + addr * 4);
+	addr = pcntrl_read_reg(ppc, PCTRL_STATUS) * 4;
+	err = pru_i_read_u32(ppc, addr, &val);
+	if (err != 0) {
+		dev_err(dev, "PRU #%d halted PC 0x%x bad\n", ppc->idx, addr);
+		return err;
+	}
 
 	/* check whether it's a halt instruction */
 	if (val != PRU_HALT_INSN) {
-		dev_dbg(dev, "PRU #%d not in halt insn (addr=0x%x val 0x%08x)\n",
+		dev_err(dev, "PRU #%d not in halt insn (addr=0x%x val 0x%08x)\n",
 				ppc->idx, addr, val);
-		return -1;
+		return -EFAULT;
 	}
 
 	valid_sc = 0;
@@ -601,14 +756,14 @@ static int pru_handle_syscall(struct pruproc_core *ppc)
 
 		case PRU_SC_PUTS:
 			/* pointers can only be in own data ram */
-			if (arg0 >= ppc->dram[1]) {
+			va = pru_d_da_to_va(ppc, arg0, NULL);
+			if (va == NULL) {
 				dev_err(dev, "PRU #%d SC PUTS bad 0x%x\n",
-						arg0);
+						ppc->idx, arg0);
 				return 1;
 			}
-			ptr = pp->vaddr + ppc->dram[0] + arg0;
 			dev_dbg(dev, "PRU #%d SC PUTS %x (%s)\n",
-				ppc->idx, (int)arg0, ptr);
+				ppc->idx, (int)arg0, (char *)va);
 			break;
 		default:
 			dev_dbg(dev, "PRU #%d SC Unknown (%d)\n",
@@ -619,8 +774,8 @@ static int pru_handle_syscall(struct pruproc_core *ppc)
 	/* skip over the HALT insn */
 	val = pcntrl_read_reg(ppc, PCTRL_CONTROL);
 	val &= 0xffff;
-	val |= (addr + 1) << 16;
-	val |= CONTROL_ENABLE;
+	addr = pcntrl_read_reg(ppc, PCTRL_STATUS);
+	val |= ((addr + 1) << 16) | CONTROL_ENABLE;
 	val &= ~CONTROL_SOFT_RST_N;
 
 	/* dev_dbg(dev, "PRU#%d new PCTRL_CONTROL=0x%08x\n",
@@ -1032,6 +1187,7 @@ static int pruproc_probe(struct platform_device *pdev)
 	struct resource *res;
 	struct pinctrl *pinctrl;
 	int err, i, irq;
+	u32 tmparr[4];
 
 	/* get pinctrl */
 	pinctrl = devm_pinctrl_get_select_default(dev);
@@ -1139,12 +1295,15 @@ static int pruproc_probe(struct platform_device *pdev)
 		goto err_fail;
 	}
 
-	err = of_property_read_u32_array(node, "pdram", pp->pdram,
-			ARRAY_SIZE(pp->pdram));
+	/* read pdram property global, size, local */
+	err = of_property_read_u32_array(node, "pdram", tmparr, 3);
 	if (err != 0) {
 		dev_err(dev, "no pintc property\n");
 		goto err_fail;
 	}
+	pp->pdram    = tmparr[0];
+	pp->pdram_sz = tmparr[1];
+	pp->pdram_da = tmparr[2];
 
 	/* configure PRU interrupt controller from DT */ 
 	err = configure_pintc(pdev, pp);
@@ -1205,19 +1364,24 @@ static int pruproc_probe(struct platform_device *pdev)
 		ppc->pruproc = pp;
 		ppc->rproc = rproc;
 
-		err = of_property_read_u32_array(pnode, "iram", ppc->iram,
-				ARRAY_SIZE(ppc->iram));
+		err = of_property_read_u32_array(pnode, "iram", tmparr, 3);
 		if (err != 0) {
 			dev_err(dev, "no iram property\n");
 			goto err_fail;
 		}
+		ppc->iram = tmparr[0];
+		ppc->iram_sz = tmparr[1];
+		ppc->iram_da = tmparr[2];
 
-		err = of_property_read_u32_array(pnode, "dram", ppc->dram,
-				ARRAY_SIZE(ppc->dram));
+		err = of_property_read_u32_array(pnode, "dram", tmparr, 4);
 		if (err != 0) {
 			dev_err(dev, "no dram property\n");
 			goto err_fail;
 		}
+		ppc->dram = tmparr[0];
+		ppc->dram_sz = tmparr[1];
+		ppc->dram_da = tmparr[2];
+		ppc->dram_oda = tmparr[3];
 
 		err = of_property_read_u32(pnode, "pctrl", &ppc->pctrl);
 		if (err != 0) {
@@ -1260,6 +1424,10 @@ static int pruproc_probe(struct platform_device *pdev)
 	pnode = NULL;
 
 	dev_info(dev, "Loaded OK\n");
+
+	(void)pru_d_read_u32;
+	(void)pru_i_write_u32;
+	(void)pru_d_write_u32;
 
 	return 0;
 err_fail:
