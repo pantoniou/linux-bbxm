@@ -72,8 +72,8 @@
 				/* PRU interrupt controller offset */
 				pintc = <0x20000>;
 
-				/* 12K Shared Data RAM offset */
-				pdram = <0x10000 0x03000>;
+				/* 12K Shared Data RAM global, size, local */
+				pdram = <0x10000 0x03000 0x10000>;
 
 				/*
 				 * SYSEVENT ids
@@ -155,8 +155,11 @@
 
 				/* definition for the first PRU */
 				pru0 {
-					iram = <0x34000 0x02000>;	/* code ram (8K) */
-					dram = <0x00000 0x02000>;	/* data ram (8K) */
+					/* offset, size, local */
+					iram = <0x34000 0x02000 0x00000>;		/* code ram (8K) */
+
+					/* offset, size, local, other */
+					dram = <0x00000 0x02000 0x00000 0x10000>;	/* data ram (8K) */
 
 					pctrl = <0x22000>;
 					pdbg  = <0x22400>;
@@ -184,8 +187,11 @@
 
 				/* definition for the second PRU */
 				pru1 {
-					iram = <0x38000 0x02000>;	/* code ram (8K) */
-					dram = <0x02000 0x02000>;	/* data ram (8K) */
+					/* offset, size, local */
+					iram = <0x38000 0x02000 0x00000>;		/* code ram (8K) */
+
+					/* offset, size, local, other */
+					dram = <0x02000 0x02000 0x00000 0x10000>;	/* data ram (8K) */
 
 					pctrl = <0x24000>;
 					pdbg  = <0x24400>;
