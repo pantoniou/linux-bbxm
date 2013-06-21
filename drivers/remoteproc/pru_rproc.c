@@ -28,17 +28,54 @@
 #include <linux/virtio_ids.h>
 #include <linux/elf.h>
 #include <linux/byteorder/generic.h>
+#include <linux/virtio.h>
+#include <linux/virtio_ring.h>
 
 #include "remoteproc_internal.h"
 
 /* PRU_EVTOUT0 is halt (system call) */
 
+/* maximum PRUs */
+#define MAX_PRUS		2
+
+/* sysevent targets (ARM + PRU) */
+#define MAX_TARGETS		(1 + MAX_PRUS)
+
+/* sysevent target ids */
+#define TARGET_ARM		0
+#define TARGET_PRU(x)		(1 + (x))
+#define TARGET_FROM_TO_IDX(_from, _to) \
+	((_from) * MAX_TARGETS + (_to))
+#define TARGET_ARM_TO_PRU_IDX(x) \
+	TARGET_FROM_TO_IDX(TARGET_ARM, TARGET_PRU(x))
+#define TARGET_PRU_TO_ARM_IDX(x) \
+	TARGET_FROM_TO_IDX(TARGET_PRU(x), TARGET_ARM)
+
+/* maximum interrupts routed to host */
 #define MAX_ARM_PRU_INTS	8
+
+/* maximum number of sys events */
 #define MAX_PRU_SYS_EVENTS	64
+
+/* maximum number of interrupt channels */
 #define MAX_PRU_CHANNELS	10
+
+/* maximum number of host interrupts (ARM + 1 for each PRU) */
 #define MAX_PRU_HOST_INT	10
 
 struct pruproc;
+struct pruproc_core;
+
+#define PRU_VRING_MAX	8
+
+struct pru_vring_info {
+	struct fw_rsc_vdev_vring *rsc;
+	struct vring vr;
+	void __iomem *va;
+	dma_addr_t pa;
+	u32 da;
+	struct rproc_vring *rvring;
+};
 
 /* per PRU core control structure */
 struct pruproc_core {
@@ -58,6 +95,14 @@ struct pruproc_core {
 
 	struct resource_table *table;
 	int table_size;
+	/* copy of the resource table in device accessible area */
+	void * __iomem dev_table_va;
+	dma_addr_t dev_table_pa;
+
+	struct fw_rsc_hdr *rsc_hdr;
+	struct fw_rsc_vdev *rsc_vdev;
+	int num_vrings;
+	struct pru_vring_info vring_info[PRU_VRING_MAX];
 };
 
 /* PRU control structure */
@@ -75,6 +120,7 @@ struct pruproc {
 	int events[MAX_ARM_PRU_INTS];
 	int sysev_to_ch[MAX_PRU_SYS_EVENTS];
 	int ch_to_host[MAX_PRU_CHANNELS];
+	int target_to_sysev[MAX_TARGETS * MAX_TARGETS];
 
 	/* number of prus */
 	u32 num_prus;
@@ -254,6 +300,18 @@ static void * __iomem pru_d_da_to_va(struct pruproc_core *ppc, u32 da,
 	if (pa)
 		*pa = pp->paddr + offset;
 	return pp->vaddr + offset;
+}
+
+/* convert physical address to device address */
+static u32 pru_d_pa_to_da(struct pruproc_core *ppc, dma_addr_t pa)
+{
+	/* we don't support mapping in the GPMC space */
+	if (pa < 0x00080000)
+		return 0xffffffff;
+
+	/* we also don't map internal memories */
+
+	return (u32)pa;
 }
 
 static void * __iomem pru_i_da_to_va(struct pruproc_core *ppc, u32 da,
@@ -590,6 +648,84 @@ pruproc_find_rsc_table(struct rproc *rproc, const struct firmware *fw,
 	return ppc->table;
 }
 
+void *get_resource_type(struct resource_table *res, 
+		int type, int idx)
+{
+	struct fw_rsc_hdr *rsc_hdr;
+	int i, j;
+
+	j = 0;
+	for (i = 0; i < res->num; i++) {
+		rsc_hdr = (void *)res + res->offset[i];
+		if (type >= 0 && rsc_hdr->type != type)
+			continue;
+		if (j == idx)
+			return &rsc_hdr->data[0];
+	}
+
+	return NULL;
+}
+
+/* update the device's firmware resource with the allocated values */
+static int update_dev_rsc_table(struct pruproc_core *ppc)
+{
+	struct rproc *rproc = ppc->rproc;
+	struct device *dev = &rproc->dev;
+	struct rproc_vdev *rvdev;
+	struct rproc_vring *rvring;
+	struct pru_vring_info *vri;
+	struct fw_rsc_vdev *rsc_vdev;
+	int vdev_idx, i, err, j;
+
+	/* copy the resource table here */
+	memcpy(ppc->dev_table_va, ppc->table, ppc->table_size);
+
+	/* everything is initialized; fill in the real da & notify ids */
+	vdev_idx = 0;
+	j = 0;
+	list_for_each_entry(rvdev, &rproc->rvdevs, node) {
+
+		/* get copied resource's VDEV */
+		rsc_vdev = get_resource_type(ppc->dev_table_va, RSC_VDEV,
+				vdev_idx);
+		if (rsc_vdev == NULL) {
+			dev_err(dev, "Failed to get RSV_VDEV #%d\n", vdev_idx);
+			err = -EINVAL;
+			goto err_fail;
+		}
+
+		for (i = 0; i < ARRAY_SIZE(rvdev->vring); i++) {
+			rvring = &rvdev->vring[i];
+
+			if (j >= ARRAY_SIZE(ppc->vring_info)) {
+				dev_err(dev, "Too many vrings\n");
+				err = -ENOENT;
+				goto err_fail;
+			}
+
+			vri = &ppc->vring_info[j];
+
+			/* keep track of rproc's rvring */
+			vri->rvring = rvring;
+
+			rsc_vdev->vring[i].da = vri->da;
+			rsc_vdev->vring[i].notifyid = rvring->notifyid;
+
+			dev_info(dev, "VDEV#%d VR#%d da=0x%08x notifyid=0x%08x\n",
+					vdev_idx, i, vri->da, rvring->notifyid);
+
+			j++;
+		}
+
+		vdev_idx++;
+	}
+
+	return 0;
+err_fail:
+	return err;
+
+}
+
 /* PRU binary firmware handler operations */
 const struct rproc_fw_ops pruproc_bin_fw_ops = {
 	.find_rsc_table	= pruproc_find_rsc_table,
@@ -605,28 +741,157 @@ const struct rproc_fw_ops pruproc_elf_fw_ops = {
 	.get_boot_addr	= pruproc_elf_get_boot_addr,
 };
 
+void dump_vring(struct vring *vring)
+{
+	int i;
+	struct vring_desc *vd;
+
+	pr_info("vring: num=%u desc @%p\n", vring->num, vring->desc);
+
+	for (i = 0; i < vring->num; i++) {
+		vd = &vring->desc[i];
+		pr_info(" d#%2d: a 0x%016llx l 0x%08x f 0x%04x n 0x%04x\n",
+				i, vd->addr, vd->len, vd->flags, vd->next);
+	}
+	pr_info(" avail: flags 0x%04x idx 0x%04x\n",
+			vring->avail->flags, vring->avail->idx);
+	for (i = 0; i < vring->num; i++) {
+		pr_info(" a#%2d: ring 0x%04x\n", i,
+				vring->avail->ring[i]);
+	}
+	pr_info(" avail: used_event_idx 0x%04x\n",
+			vring->avail->ring[vring->num]);
+
+	pr_info(" used: flags 0x%04x idx 0x%04x\n",
+			vring->used->flags, vring->used->idx);
+	for (i = 0; i < vring->num; i++) {
+		pr_info(" u#%2d: id 0x%08x len 0x%08x\n", i,
+				vring->used->ring[i].id,
+				vring->used->ring[i].len);
+	}
+}
+
+void dump_all_vrings(struct pruproc_core *ppc)
+{
+	struct device *dev = &ppc->rproc->dev;
+	struct vring *vr;
+	struct fw_rsc_vdev_vring *rsc_vr;
+	struct pru_vring_info *vri;
+	int i;
+
+	for (i = 0; i < ppc->num_vrings; i++) {
+		vri = &ppc->vring_info[i];
+
+		vr = &vri->vr;
+		rsc_vr = vri->rsc;
+
+		dev_dbg(dev, "VRING #%d (size %d)\n", i,
+				vring_size(vr->num, rsc_vr->align));
+		dump_vring(vr);
+		dev_dbg(dev, "\n");
+		print_hex_dump(KERN_DEBUG, "", DUMP_PREFIX_OFFSET,
+				16, 4, vr->desc,
+				vring_size(vr->num, rsc_vr->align),
+				false);
+	}
+}
+
 /* Kick the modem with specified notification id */
 static void pruproc_kick(struct rproc *rproc, int vqid)
 {
+	struct device *dev = &rproc->dev;
 	struct pruproc_core *ppc = rproc->priv;
 	struct pruproc *pp = ppc->pruproc;
-	struct device *dev = &pp->pdev->dev;
+	int sysint;
 
 	dev_dbg(dev, "kick #%d vqid:%d\n", ppc->idx, vqid);
+
+	/* ARM to PRUx system event */
+	sysint = pp->target_to_sysev[TARGET_ARM_TO_PRU_IDX(ppc->idx)];
+
+	/* signal event */
+	if (sysint < 32)
+		pintc_write_reg(pp, PINTC_SRSR0, 1 << sysint);
+	else
+		pintc_write_reg(pp, PINTC_SRSR1, 1 << (sysint - 32));
+
+	// dump_all_vrings(ppc);
+}
+
+void dump_resource_table(const struct resource_table *res)
+{
+	const struct fw_rsc_hdr *rsc_hdr;
+	const struct fw_rsc_vdev *rsc_vdev;
+	const struct fw_rsc_vdev_vring *rsc_vring;
+	int i, j;
+
+	pr_info("resource_table @%p\n", res);
+	pr_info(" .ver = 0x%08x\n", res->ver);
+	pr_info(" .num = 0x%08x\n", res->num);
+	for (i = 0; i < res->num; i++) {
+		rsc_hdr = (void *)res + res->offset[i];
+		pr_info("  rsc_hdr#%d: .type = 0x%08x\n", i,
+				rsc_hdr->type);
+		switch (rsc_hdr->type) {
+		case RSC_CARVEOUT:
+			pr_info("  CARVEOUT:\n");
+			break;
+		case RSC_DEVMEM:
+			pr_info("  DEVMEM:\n");
+			break;
+		case RSC_TRACE:
+			pr_info("  TRACE:\n");
+			break;
+		case RSC_VDEV:
+			pr_info("  VDEV:\n");
+			rsc_vdev = (void *)&rsc_hdr->data[0];
+			pr_info("   .id = 0x%08x\n", rsc_vdev->id);
+			pr_info("   .notifyid = 0x%08x\n", rsc_vdev->notifyid);
+			pr_info("   .dfeatures = 0x%08x\n", rsc_vdev->dfeatures);
+			pr_info("   .gfeatures = 0x%08x\n", rsc_vdev->gfeatures);
+			pr_info("   .config_len = 0x%08x\n", rsc_vdev->config_len);
+			pr_info("   .status = 0x%02x\n", rsc_vdev->status);
+			pr_info("   .num_of_vrings = 0x%02x\n", rsc_vdev->num_of_vrings);
+			for (j = 0; j < rsc_vdev->num_of_vrings; j++) {
+				rsc_vring = &rsc_vdev->vring[j];
+				pr_info("   VRING #%d:\n", j);
+				pr_info("     .da = 0x%08x\n",
+						rsc_vring->da);
+				pr_info("     .align = 0x%08x\n",
+						rsc_vring->align);
+				pr_info("     .num = 0x%08x\n",
+						rsc_vring->num);
+				pr_info("     .notifyid = 0x%08x\n",
+						rsc_vring->notifyid);
+			}
+			break;
+		}
+	}
 }
 
 /* Start the PRU modem */
 static int pruproc_start(struct rproc *rproc)
 {
+	struct device *dev = &rproc->dev;
 	struct pruproc_core *ppc = rproc->priv;
-	struct pruproc *pp = ppc->pruproc;
-	struct device *dev = &pp->pdev->dev;
+	u32 val;
+	int err;
 
-	dev_dbg(dev, "start PRU #%d entry-point 0x%x\n",
+	dev_dbg(dev, "start PRU #%d entry-point 0x%x - dump of vrings follow\n",
 			ppc->idx, ppc->entry_point);
 
-	pcntrl_write_reg(ppc, PCTRL_CONTROL,
-			CONTROL_ENABLE | ((ppc->entry_point >> 2) << 16));
+	/* we have to copy the resource table and update the device addresses */
+
+	err = update_dev_rsc_table(ppc);
+	if (err != 0) {
+		dev_err(dev, "failed to update resource table\n");
+		return err;
+	}
+
+	dump_resource_table(ppc->dev_table_va);
+
+	val = CONTROL_ENABLE | ((ppc->entry_point >> 2) << 16);
+	pcntrl_write_reg(ppc, PCTRL_CONTROL, val);
 
 	return 0;
 }
@@ -634,8 +899,7 @@ static int pruproc_start(struct rproc *rproc)
 /* Stop the PRU modem */
 static int pruproc_stop(struct rproc *rproc)
 {
-	struct pruproc *pp = rproc->priv;
-	struct device *dev = &pp->pdev->dev;
+	struct device *dev = &rproc->dev;
 
 	dev_dbg(dev, "stop PRU\n");
 
@@ -643,27 +907,74 @@ static int pruproc_stop(struct rproc *rproc)
 }
 
 static void *pruproc_alloc_vring(struct rproc *rproc,
-		const struct fw_rsc_vdev_vring *vring,
+		const struct fw_rsc_vdev_vring *rsc_vring,
 		int size, dma_addr_t *dma)
 {
+	struct device *dev = &rproc->dev;
 	struct pruproc_core *ppc = rproc->priv;
-	struct pruproc *pp = ppc->pruproc;
-	struct device *dev = &pp->pdev->dev;
+	struct pru_vring_info *vri;
+	struct vring *vring;
 	void * __iomem va;
+	dma_addr_t dma_tmp;
+	int i;
 
-	va = pru_d_da_to_va_block(ppc, vring->da, dma, size);
+	/* find vring index */
+	for (i = 0; i < ppc->num_vrings; i++) {
+		if (rsc_vring == ppc->vring_info[i].rsc)
+			break;
+	}
 
-	dev_dbg(dev, "PRU vring #%d da=0x%x, va=%p, dma=0x%llx size=%u\n",
-		ppc->idx, vring->da, va, (unsigned long long)*dma, size);
+	if (i >= ppc->num_vrings) {
+		dev_err(dev, "PRU #%d could not find rsc_vring at %p\n", 
+				ppc->idx, rsc_vring);
+		return NULL;
+	}
+
+	if (dma == NULL)
+		dma = &dma_tmp;
+
+	if (rsc_vring->da != 0) {
+		dev_dbg(dev, "PRU #%d alloc vring #%d from internal memory\n",
+				ppc->idx, i);
+		va = pru_d_da_to_va_block(ppc, rsc_vring->da, dma, size);
+	} else {
+		dev_dbg(dev, "PRU #%d alloc vring #%d dma_alloc_coherent\n",
+				ppc->idx, i);
+		va = dma_alloc_coherent(dev->parent, PAGE_ALIGN(size),
+			dma, GFP_KERNEL);
+	}
+
+	if (va == NULL) {
+		dev_err(dev, "PRU #%d could not allocate vring %p\n", 
+				ppc->idx, rsc_vring);
+		return NULL;
+	}
+
+	/* setup vring for use */
+	vri = &ppc->vring_info[i];
+	vring = &vri->vr; 
+	vring_init(vring, rsc_vring->num, va, rsc_vring->align);
+
+	/* save VA & PA */
+	vri->va = va;
+	vri->pa = *dma;
+	vri->da = pru_d_pa_to_da(ppc, *dma);
+
+	dev_dbg(dev, "PRU #%d vring #%d da=0x%x, va=%p, dma=0x%llx size=%u\n",
+		ppc->idx, i, rsc_vring->da, va, (unsigned long long)*dma, size);
 
 	return va;
 }
 
 static void pruproc_free_vring(struct rproc *rproc,
-		const struct fw_rsc_vdev_vring *vring,
+		const struct fw_rsc_vdev_vring *rsc_vring,
 		int size, void *va, dma_addr_t dma)
 {
-	/* nothing to do */
+	struct device *dev = &rproc->dev;
+
+	/* if DA is NULL, means we allocated via dma_alloc_coherent */
+	if (rsc_vring->da == 0)
+		dma_free_coherent(dev->parent, PAGE_ALIGN(size), va, dma);
 }
 
 static struct rproc_ops pruproc_ops = {
@@ -690,6 +1001,10 @@ static int pruproc_remove(struct platform_device *pdev)
 		ppc = pp->pruc[i];
 		rproc_del(ppc->rproc);
 		rproc_put(ppc->rproc);
+
+		if (ppc->dev_table_va != NULL)
+			dma_free_coherent(dev, PAGE_ALIGN(ppc->table_size),
+					ppc->dev_table_va, ppc->dev_table_pa);
 	}
 
 	platform_set_drvdata(pdev, NULL);
@@ -703,14 +1018,27 @@ static int pruproc_remove(struct platform_device *pdev)
 #define PRU_SC_PUTC	1
 #define PRU_SC_EXIT	2
 #define PRU_SC_PUTS	3
+#define PRU_SC_GET_CFG	4
+#define  PRU_SC_GET_CFG_VRING_NR 0
+#define  PRU_SC_GET_CFG_VRING_INFO 1
+#define  PRU_SC_GET_CFG_RESOURCE_TABLE 2
+
+struct pru_dev_vring_info {
+	u32 paddr;
+	u32 num;
+	u32 align;
+	u32 pad;
+};
 
 static int pru_handle_syscall(struct pruproc_core *ppc)
 {
 	struct pruproc *pp = ppc->pruproc;
 	struct device *dev = &pp->pdev->dev;
-	u32 val, addr, scno, arg0;
+	u32 val, addr, scno, arg0, arg1, arg2, ret;
 	int err, valid_sc;
 	void * __iomem va;
+	struct pru_vring_info *vri;
+	struct pru_dev_vring_info *dvri;
 
 	/* check whether it's halted */
 	val = pcntrl_read_reg(ppc, PCTRL_CONTROL);
@@ -738,19 +1066,23 @@ static int pru_handle_syscall(struct pruproc_core *ppc)
 	valid_sc = 0;
 	scno = pdbg_read_reg(ppc, PDBG_GPREG(14));
 	arg0 = pdbg_read_reg(ppc, PDBG_GPREG(15));
+	arg1 = pdbg_read_reg(ppc, PDBG_GPREG(16));
+	arg2 = pdbg_read_reg(ppc, PDBG_GPREG(17));
+	ret  = 0;	/* by default we return 0 */
+
 	switch (scno) {
 		case PRU_SC_HALT:
-			dev_dbg(dev, "PRU #%d SC HALT\n",
+			dev_dbg(dev, "P%d HALT\n",
 				ppc->idx);
 			return 1;
 
 		case PRU_SC_PUTC:
-			dev_info(dev, "PRU #%d SC PUTC '%c'\n", 
+			dev_info(dev, "P%d PUTC '%c'\n", 
 				ppc->idx, (char)(arg0 & 0xff));
 			break;
 
 		case PRU_SC_EXIT:
-			dev_dbg(dev, "PRU #%d SC EXIT %d\n",
+			dev_dbg(dev, "P%d EXIT %d\n",
 				ppc->idx, (int)arg0);
 			return 1;
 
@@ -760,16 +1092,74 @@ static int pru_handle_syscall(struct pruproc_core *ppc)
 			if (va == NULL) {
 				dev_err(dev, "PRU #%d SC PUTS bad 0x%x\n",
 						ppc->idx, arg0);
-				return 1;
+				ret = (u32)-1;
+			} else {
+				dev_dbg(dev, "P%d PUTS '%s'\n",
+					ppc->idx, (char *)va);
 			}
-			dev_dbg(dev, "PRU #%d SC PUTS %x (%s)\n",
-				ppc->idx, (int)arg0, (char *)va);
 			break;
+
+		case PRU_SC_GET_CFG:
+			switch (arg0) {
+				case PRU_SC_GET_CFG_VRING_NR:
+					ret = ppc->num_vrings;	/* two rings */
+					dev_dbg(dev, "P%d GET_CFG VRING_NR %d\n",
+						ppc->idx, (int)ret);
+					break;
+				case PRU_SC_GET_CFG_VRING_INFO:
+					if (arg1 >= ppc->num_vrings) {
+						dev_err(dev, "PRU #%d SC "
+							"GET_CFG_VRING_INFO "
+							"bad idx %d\n",
+							ppc->idx, arg1);
+					}
+
+					va = pru_d_da_to_va(ppc, arg2, NULL);
+					if (va == NULL) {
+						dev_err(dev, "PRU #%d SC "
+							"GET_CFG_VRING_INFO "
+							"bad 0x%x\n",
+							ppc->idx, arg2);
+						ret = (u32)-1;
+						break;
+					}
+					dvri = va;
+					vri = &ppc->vring_info[arg1];
+
+					/* fill it in */
+					dvri->paddr = vri->pa;
+					dvri->num = vri->rsc->num;
+					dvri->align = vri->rsc->align;
+					dvri->pad = 0;
+
+					dev_dbg(dev, "P%d GET_CFG VRING_INFO %d\n",
+						ppc->idx, (int)ret);
+					break;
+
+				case PRU_SC_GET_CFG_RESOURCE_TABLE:
+					/* just return the physical address */
+					ret = (u32)ppc->dev_table_pa;
+					dev_dbg(dev, "P%d GET_CFG RESOURCE_TABLE 0x%x\n",
+						ppc->idx, ret);
+					break;
+
+				default:
+					dev_err(dev, "PRU #%d SC "
+						"GET_CFG bad 0x%x\n",
+						ppc->idx, arg1);
+					ret = (u32)-1;
+					break;
+			}
+			break;
+
 		default:
 			dev_dbg(dev, "PRU #%d SC Unknown (%d)\n",
 				ppc->idx, scno);
 			return 1;
 	}
+
+	/* return code */
+	pdbg_write_reg(ppc, PDBG_GPREG(14), ret);
 
 	/* skip over the HALT insn */
 	val = pcntrl_read_reg(ppc, PCTRL_CONTROL);
@@ -790,8 +1180,10 @@ static irqreturn_t pru_handler(int irq, void *data)
 {
 	struct pruproc *pp = data;
 	struct pruproc_core *ppc;
+	struct rproc *rproc;
 	struct device *dev = &pp->pdev->dev;
-	int i, ev, sysint, handled, ret;
+	int pru_idx, i, ev, sysint, handled, ret;
+	struct pru_vring_info *vri;
 	u32 val;
 
 	/* find out which IRQ we got */
@@ -815,39 +1207,76 @@ static irqreturn_t pru_handler(int irq, void *data)
 
 	sysint = val & 0x3f;
 
-	/* dev_dbg(dev, "Got interrupt #%d, event %d, sysint %d\n", irq, ev,
-			sysint); */
+	/* clear event */
+	if (sysint < 32)
+		pintc_write_reg(pp, PINTC_SECR0, 1 << sysint);
+	else
+		pintc_write_reg(pp, PINTC_SECR1, 1 << (sysint - 32));
 
-	/* pump all the vrings */
-	for (i = 0; i < pp->num_prus; i++) {
-		ppc = pp->pruc[i];
+	dev_dbg(dev, "Got interrupt #%d, event %d, sysint %d\n", irq, ev,
+			sysint);
+
+	/* find out which PRU sent the interrupt */
+	for (pru_idx = 0; pru_idx < MAX_PRUS; pru_idx++) {
+		i = pp->target_to_sysev[TARGET_PRU_TO_ARM_IDX(pru_idx)];
+		if (i == sysint)
+			break;
 	}
 
-	/* now check if it's halted */
+	/* unknown sysint source */
+	if (pru_idx >= MAX_PRUS) {
+		dev_warn(dev, "Unknown event source %d; disabling interrupt\n",
+				sysint);
+		goto disable_int;
+	}
+
+	/* get the pru core structure this PRU uses */
+	for (i = 0; i < pp->num_prus; i++) {
+		if (pp->pruc[i]->idx == pru_idx)
+			break;
+	}
+
+	if (i >= pp->num_prus) {
+		dev_warn(dev, "PRU #%d not enabled; disabling interrupt\n",
+				pru_idx);
+		goto disable_int;
+	}
+
+	/* ok, got the source PRU */
+	ppc = pp->pruc[i];
+	rproc = ppc->rproc;
+
 	handled = 0;
-	for (i = 0; i < pp->num_prus; i++) {
-		ppc = pp->pruc[i];
 
-		ret = pru_handle_syscall(ppc);
-		if (ret == 0) 	/* system call handled */
+	ret = pru_handle_syscall(ppc);
+	if (ret == 0) 	/* system call handled */
+		handled++;
+
+	/* handle any vrings action */
+	for (i = 0; i < ppc->num_vrings; i++) {
+		vri = &ppc->vring_info[i];
+		if (vri->rvring == NULL)
+			continue;
+		ret = rproc_vq_interrupt(rproc, vri->rvring->notifyid);
+		if (ret == IRQ_HANDLED) {
+			dev_dbg(dev, "PRU #%d; vring irq handled\n",
+					ppc->idx);
 			handled++;
+		}
 
 	}
 
-	if (handled) {
-		/* clear event */
-		if (sysint < 32)
-			pintc_write_reg(pp, PINTC_SECR0, 1 << sysint);
-		else
-			pintc_write_reg(pp, PINTC_SECR1, 1 << (sysint - 32));
-	} else {
+	if (!handled) {
+		dev_dbg(dev, "sysint not handled; disabling interrupt\n");
+		goto disable_int;
 
-		dev_dbg(dev, "not handled; disabling interrupt\n");
-
-		/* disable the interrupt */
-		pintc_write_reg(pp, PINTC_HIDISR, ev);
 	}
 
+	return IRQ_HANDLED;
+
+disable_int:
+	/* disable the interrupt */
+	pintc_write_reg(pp, PINTC_HIDISR, ev);
 	return IRQ_HANDLED;
 }
 
@@ -861,6 +1290,7 @@ static int build_rsc_table(struct platform_device *pdev,
 	struct resource_table *rsc;
 	struct fw_rsc_hdr *rsc_hdr;
 	struct fw_rsc_vdev *rsc_vdev;
+	struct pru_vring_info *vri;
 	char vring_name[16];
 	u32 vring_data[4], val;
 	struct fw_rsc_vdev_vring *rsc_vring;
@@ -896,8 +1326,7 @@ static int build_rsc_table(struct platform_device *pdev,
 
 	num_vrings = 0;
 	if (rvnode != NULL) {
-		/* hardcoded limit is 256 vrings */
-		for (num_vrings = 0; num_vrings < 256; num_vrings++) {
+		for (num_vrings = 0; num_vrings < ARRAY_SIZE(ppc->vring_info); num_vrings++) {
 			snprintf(vring_name, sizeof(vring_name), "vring-%d",
 					num_vrings);
 			if (of_property_read_u32_array(rvnode, vring_name,
@@ -920,6 +1349,8 @@ static int build_rsc_table(struct platform_device *pdev,
 	ppc->table = table;
 	ppc->table_size = table_size;
 
+	ppc->num_vrings = num_vrings;
+
 	p = table;	/* pointer at start */
 
 	/* resource table */
@@ -940,13 +1371,18 @@ static int build_rsc_table(struct platform_device *pdev,
 
 		/* resource header */
 		p += sizeof(*rsc_hdr);
+		ppc->rsc_hdr = rsc_hdr;
+
 		rsc_hdr->type = RSC_VDEV;
 
 		/* vdev */
 		rsc_vdev = p;
 		p += sizeof(*rsc_vdev);
+		ppc->rsc_vdev = rsc_vdev;
+
 		/* Use serial (dumb char device) for now */
 		rsc_vdev->id = VIRTIO_ID_RPROC_SERIAL;
+		// rsc_vdev->id = VIRTIO_ID_RPMSG;
 		err = of_property_read_u32(rvnode, "notifyid", &val);
 		if (err != 0) {
 			dev_err(dev, "no notifyid vdev property\n");
@@ -963,6 +1399,10 @@ static int build_rsc_table(struct platform_device *pdev,
 			rsc_vring = p;
 			p += sizeof(*rsc_vring);
 
+			vri = &ppc->vring_info[i];
+
+			vri->rsc = rsc_vring;
+
 			snprintf(vring_name, sizeof(vring_name), "vring-%d",
 					i);
 			err = of_property_read_u32_array(rvnode, vring_name,
@@ -976,6 +1416,16 @@ static int build_rsc_table(struct platform_device *pdev,
 			rsc_vring->num = vring_data[2];
 			rsc_vring->notifyid = vring_data[3];
 		}
+	}
+
+	/* all done, create the device copy */
+	ppc->dev_table_va = dma_alloc_coherent(dev,
+			PAGE_ALIGN(ppc->table_size), &ppc->dev_table_pa,
+			GFP_KERNEL);
+	if (ppc->dev_table_va == NULL) {
+		dev_err(dev, "Failed to dma_alloc dev resource table\n");
+		err = -ENOMEM;
+		goto err_fail;
 	}
 
 	err = 0;
@@ -1068,12 +1518,19 @@ static int configure_pintc(struct platform_device *pdev, struct pruproc *pp)
 
 	/* retreive the maps */
 	err = read_map_property(dev, node, "sysevent-to-channel-map",
-			pp->sysev_to_ch, MAX_PRU_SYS_EVENTS, MAX_PRU_CHANNELS);
+			pp->sysev_to_ch, ARRAY_SIZE(pp->sysev_to_ch),
+			MAX_PRU_CHANNELS);
 	if (err != 0)
 		return err;
 
 	err = read_map_property(dev, node, "channel-to-host-interrupt-map",
-			pp->ch_to_host, MAX_PRU_CHANNELS, MAX_PRU_HOST_INT);
+			pp->ch_to_host, ARRAY_SIZE(pp->ch_to_host),
+			MAX_PRU_HOST_INT);
+	if (err != 0)
+		return err;
+
+	err = of_property_read_u32_array(node, "target-to-sysevent-map",
+			pp->target_to_sysev, ARRAY_SIZE(pp->target_to_sysev));
 	if (err != 0)
 		return err;
 
@@ -1187,7 +1644,7 @@ static int pruproc_probe(struct platform_device *pdev)
 	struct resource *res;
 	struct pinctrl *pinctrl;
 	int err, i, irq;
-	u32 tmparr[4];
+	u32 tmparr[4], pru_idx;
 
 	/* get pinctrl */
 	pinctrl = devm_pinctrl_get_select_default(dev);
@@ -1326,6 +1783,12 @@ static int pruproc_probe(struct platform_device *pdev)
 		err = -EINVAL;
 		goto err_fail;
 	}
+	/* found too many? */
+	if (pp->num_prus >= MAX_PRUS) {
+		dev_err(dev, "Only 2 PRU nodes are supported\n");
+		err = -EINVAL;
+		goto err_fail;
+	}
 	dev_info(dev, "found #%d PRUs\n", pp->num_prus);
 
 	/* allocate pointers */
@@ -1345,13 +1808,31 @@ static int pruproc_probe(struct platform_device *pdev)
 		if (of_find_property(pnode, "firmware", NULL) == NULL)
 			continue;
 
-		err = of_property_read_string(pnode, "firmware", &fw_name);
+		/* get the hardware index of the PRU */
+		err = of_property_read_u32(pnode, "pru-index", &pru_idx);
 		if (err != 0) {
-			dev_err(dev, "can't find fw property %s\n", "firmware");
+			dev_err(dev, "can't find property %s\n", "pru-index");
 			of_node_put(pnode);
 			goto err_fail;
 		}
 
+		/* verify the index */
+		if (pru_idx >= MAX_PRUS) {
+			dev_err(dev, "Illegal pru-index property %u\n",
+					pru_idx);
+			of_node_put(pnode);
+			goto err_fail;
+		}
+
+		/* get the firmware */
+		err = of_property_read_string(pnode, "firmware", &fw_name);
+		if (err != 0) {
+			dev_err(dev, "can't find property %s\n", "firmware");
+			of_node_put(pnode);
+			goto err_fail;
+		}
+
+		/* allocate the remote proc + our private data */
 		rproc = rproc_alloc(dev, pdev->name, &pruproc_ops, fw_name,
 				sizeof(*ppc));
 		if (!rproc) {
@@ -1360,7 +1841,7 @@ static int pruproc_probe(struct platform_device *pdev)
 			goto err_fail;
 		}
 		ppc = rproc->priv;
-		ppc->idx = i;
+		ppc->idx = pru_idx;
 		ppc->pruproc = pp;
 		ppc->rproc = rproc;
 

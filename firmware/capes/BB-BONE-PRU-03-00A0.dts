@@ -153,8 +153,16 @@
 					<2 2>,	/* CH2 -> EVTOUT0 */
 					<3 3>;	/* CH3 -> EVTOUT1 */
 
+				/* indices are ARM=0, PRU0=1, PRU1=2 */
+				target-to-sysevent-map =
+					<0xffffffff         21         22>,	/* ARM:  DONTCARE, ARM_PRU0,  ARM_PRU1  */
+					<        19 0xffffffff         17>,	/* PRU0: PRU0_ARM, DONTCARE,  PRU0_PRU1 */
+					<        20         18 0xffffffff>;	/* PRU1: PRU1_ARM, PRU1_PRU0, DONTCARE  */
+
 				/* definition for the first PRU */
 				pru0 {
+					pru-index = <0>;
+
 					/* offset, size, local */
 					iram = <0x34000 0x02000 0x00000>;		/* code ram (8K) */
 
@@ -177,16 +185,22 @@
 						 */
 						vdev {
 							vdev;
-							notifyid = <0>;
+
+							/* notification IDs are totally bogus */
+							/* rproc will idr_alloc anyway */
+
+							notifyid = <8>;	/* <- bogus */
 							/* da align num notifyid */
-							vring-0 = <0x10000 16 64 1>;
-							vring-1 = <0x11000 16 64 2>;
+							vring-0 = <0 16 8 0>;
+							vring-1 = <0 16 8 0>;
 						};
 					};
 				};
 
 				/* definition for the second PRU */
 				pru1 {
+					pru-index = <1>;
+
 					/* offset, size, local */
 					iram = <0x38000 0x02000 0x00000>;		/* code ram (8K) */
 
@@ -209,10 +223,11 @@
 						 */
 						vdev {
 							vdev;
-							notifyid = <16>;
+							notifyid = <16>; /* <- bogus */
 							/* da align num notifyid */
-							vring-0 = <0x12000 16 64 17>;
-							vring-1 = <0x13000 16 64 18>;
+							/* host allocates */
+							vring-0 = <0 16 8 0>;
+							vring-1 = <0 16 8 0>;
 						};
 					};
 				};
