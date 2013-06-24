@@ -44,6 +44,10 @@
 /* sysevent target ids */
 #define TARGET_ARM		0
 #define TARGET_PRU(x)		(1 + (x))
+#define TARGET_PRU_TO_PRU_IDX(x) ({ \
+	unsigned int _x = (x) - TARGET_PRU(0); \
+	_x < MAX_PRUS ? _x : -1; \
+	})
 #define TARGET_FROM_TO_IDX(_from, _to) \
 	((_from) * MAX_TARGETS + (_to))
 #define TARGET_ARM_TO_PRU_IDX(x) \
@@ -61,6 +65,7 @@
 #define MAX_PRU_CHANNELS	10
 
 /* maximum number of host interrupts (ARM + 1 for each PRU) */
+#define MIN_PRU_HOST_INT	2
 #define MAX_PRU_HOST_INT	10
 
 struct pruproc;
@@ -103,6 +108,19 @@ struct pruproc_core {
 	struct fw_rsc_vdev *rsc_vdev;
 	int num_vrings;
 	struct pru_vring_info vring_info[PRU_VRING_MAX];
+
+	/* sysevent the host generates when kicking any vring */
+	int host_vring_sysev;
+
+	/* sysevent the pru generates when kicking any vring */
+	int pru_vring_sysev;
+};
+
+struct pru_sysev_target {
+	unsigned int valid : 1;	/* sysevent is valid */
+	unsigned int vring : 1;	/* sysevent is vring related */
+	int source;		/* 0=ARM, 1=PRU0, 2=PRU1 */
+	int target;		/* 0=ARM, 1=PRU0, 2=PRU1 */
 };
 
 /* PRU control structure */
@@ -122,9 +140,13 @@ struct pruproc {
 	int ch_to_host[MAX_PRU_CHANNELS];
 	int target_to_sysev[MAX_TARGETS * MAX_TARGETS];
 
+	/* map an incoming sysevent to kind and handler */ 
+	struct pru_sysev_target sysev_to_target[MAX_PRU_SYS_EVENTS];
+
 	/* number of prus */
 	u32 num_prus;
 	struct pruproc_core **pruc;
+	struct pruproc_core *pru_to_pruc[MAX_PRUS];
 };
 
 /* global memory map (for am33xx) (almost the same as local) */
@@ -918,6 +940,9 @@ static void *pruproc_alloc_vring(struct rproc *rproc,
 	dma_addr_t dma_tmp;
 	int i;
 
+	dev_dbg(dev, "PRU#%d alloc rsc_vring %p\n",
+			ppc->idx, rsc_vring);
+
 	/* find vring index */
 	for (i = 0; i < ppc->num_vrings; i++) {
 		if (rsc_vring == ppc->vring_info[i].rsc)
@@ -1180,6 +1205,7 @@ static irqreturn_t pru_handler(int irq, void *data)
 {
 	struct pruproc *pp = data;
 	struct pruproc_core *ppc;
+	struct pru_sysev_target *pst;
 	struct rproc *rproc;
 	struct device *dev = &pp->pdev->dev;
 	int pru_idx, i, ev, sysint, handled, ret;
@@ -1213,57 +1239,54 @@ static irqreturn_t pru_handler(int irq, void *data)
 	else
 		pintc_write_reg(pp, PINTC_SECR1, 1 << (sysint - 32));
 
-	dev_dbg(dev, "Got interrupt #%d, event %d, sysint %d\n", irq, ev,
-			sysint);
-
-	/* find out which PRU sent the interrupt */
-	for (pru_idx = 0; pru_idx < MAX_PRUS; pru_idx++) {
-		i = pp->target_to_sysev[TARGET_PRU_TO_ARM_IDX(pru_idx)];
-		if (i == sysint)
-			break;
-	}
-
-	/* unknown sysint source */
-	if (pru_idx >= MAX_PRUS) {
-		dev_warn(dev, "Unknown event source %d; disabling interrupt\n",
+	/* get the source of the sysevent */
+	pst = &pp->sysev_to_target[sysint];
+	if (pst->valid == 0 || pst->source < -1 || pst->target < -1) {
+		dev_warn(dev, "sysevent not handled %d; disabling\n",
 				sysint);
 		goto disable_int;
 	}
 
-	/* get the pru core structure this PRU uses */
-	for (i = 0; i < pp->num_prus; i++) {
-		if (pp->pruc[i]->idx == pru_idx)
-			break;
+	/* target self? not handled */
+	if (pst->source == TARGET_ARM) {
+		dev_warn(dev, "sysevent %d has host as source; disabling\n",
+				sysint);
+		goto disable_int;
 	}
 
-	if (i >= pp->num_prus) {
-		dev_warn(dev, "PRU #%d not enabled; disabling interrupt\n",
-				pru_idx);
+	/* find out which PRU was it */
+	pru_idx = TARGET_PRU_TO_PRU_IDX(pst->source);
+	ppc = pp->pru_to_pruc[pru_idx];
+	if (ppc == NULL) {
+		dev_warn(dev, "systevent %d from bad PRU; disabling\n",
+				sysint);
 		goto disable_int;
 	}
 
 	/* ok, got the source PRU */
-	ppc = pp->pruc[i];
 	rproc = ppc->rproc;
 
 	handled = 0;
 
-	ret = pru_handle_syscall(ppc);
-	if (ret == 0) 	/* system call handled */
-		handled++;
-
-	/* handle any vrings action */
-	for (i = 0; i < ppc->num_vrings; i++) {
-		vri = &ppc->vring_info[i];
-		if (vri->rvring == NULL)
-			continue;
-		ret = rproc_vq_interrupt(rproc, vri->rvring->notifyid);
-		if (ret == IRQ_HANDLED) {
-			dev_dbg(dev, "PRU #%d; vring irq handled\n",
-					ppc->idx);
+	/* we either handle a vring or not */ 
+	if (!pst->vring) {
+		ret = pru_handle_syscall(ppc);
+		if (ret == 0) 	/* system call handled */
 			handled++;
-		}
+	} else {
+		/* handle any vrings action */
+		for (i = 0; i < ppc->num_vrings; i++) {
+			vri = &ppc->vring_info[i];
+			if (vri->rvring == NULL)
+				continue;
+			ret = rproc_vq_interrupt(rproc, vri->rvring->notifyid);
+			if (ret == IRQ_HANDLED) {
+				dev_dbg(dev, "PRU #%d; vring irq handled\n",
+						ppc->idx);
+				handled++;
+			}
 
+		}
 	}
 
 	if (!handled) {
@@ -1382,6 +1405,7 @@ static int build_rsc_table(struct platform_device *pdev,
 
 		/* Use serial (dumb char device) for now */
 		rsc_vdev->id = VIRTIO_ID_RPROC_SERIAL;
+		// rsc_vdev->id = VIRTIO_ID_CONSOLE;
 		// rsc_vdev->id = VIRTIO_ID_RPMSG;
 		err = of_property_read_u32(rvnode, "notifyid", &val);
 		if (err != 0) {
@@ -1638,13 +1662,15 @@ static int pruproc_probe(struct platform_device *pdev)
 	struct device_node *pnode = NULL;
 	struct pruproc *pp;
 	struct pruproc_core *ppc;
+	struct pru_sysev_target *pst;
 	const char *fw_name;
 	int pm_get = 0;
 	struct rproc *rproc = NULL;
 	struct resource *res;
 	struct pinctrl *pinctrl;
-	int err, i, irq;
+	int err, i, j, irq, sysev;
 	u32 tmparr[4], pru_idx;
+	u32 tmpev[MAX_ARM_PRU_INTS];
 
 	/* get pinctrl */
 	pinctrl = devm_pinctrl_get_select_default(dev);
@@ -1707,30 +1733,39 @@ static int pruproc_probe(struct platform_device *pdev)
 	for (i = 0; i < ARRAY_SIZE(pp->ch_to_host); i++)
 		pp->ch_to_host[i] = -1;
 
+	/* finally register the interrupts */
 	for (i = 0; i < ARRAY_SIZE(pp->irqs); i++) {
 
 		err = platform_get_irq(pdev, i);
 		if (err < 0)
 			break;
 		irq = err;
-
 		pp->irqs[i] = irq;
-
-		err = devm_request_irq(dev, irq, pru_handler, 0,
-				dev_name(dev), pp);
-		if (err != 0) {
-			dev_err(dev, "Failed to register irq %d\n", irq);
-			goto err_fail;
-		}
 	}
 	pp->num_irqs = i;
 	dev_info(dev, "#%d PRU interrupts registered\n", pp->num_irqs);
 
-	err = of_property_read_u32_array(node, "events", pp->events,
-			pp->num_irqs);
+	/* make sure this fits */
+	if (pp->num_irqs > ARRAY_SIZE(tmpev)) {
+		dev_err(dev, "Too many irqs (%d)\n", pp->num_irqs);
+		goto err_fail;
+	}
+
+	/* read the events (host ints) */
+	err = of_property_read_u32_array(node, "events", tmpev, pp->num_irqs);
 	if (err != 0) {
 		dev_err(dev, "Failed to read events array\n");
 		goto err_fail;
+	}
+
+	/* assign and check */
+	for (i = 0; i < pp->num_irqs; i++) {
+		if (tmpev[i] < MIN_PRU_HOST_INT ||
+				tmpev[i] >= MAX_PRU_HOST_INT) {
+			dev_err(dev, "Bad event property entry %u\n", tmpev[i]);
+			goto err_fail;
+		}
+		pp->events[i] = tmpev[i];
 	}
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
@@ -1876,6 +1911,21 @@ static int pruproc_probe(struct platform_device *pdev)
 			goto err_fail;
 		}
 
+		/* read vring sysevent array */
+		err = of_property_read_u32_array(pnode, "vring-sysev", tmparr, 2);
+		if (err != 0) {
+			dev_err(dev, "no vring-sysev property\n");
+			goto err_fail;
+		}
+		/* verify */
+		if (tmparr[0] >= MAX_PRU_SYS_EVENTS ||
+				tmparr[1] >= MAX_PRU_SYS_EVENTS) {
+			dev_err(dev, "illegal vring-sysev property\n");
+			goto err_fail;
+		}
+		ppc->pru_vring_sysev = tmparr[0];
+		ppc->host_vring_sysev = tmparr[1];
+
 		/* check firmware type */
 		ppc->is_elf = of_property_read_bool(pnode, "firmware-elf");
 
@@ -1892,17 +1942,103 @@ static int pruproc_probe(struct platform_device *pdev)
 		else
 			rproc->fw_ops = &pruproc_elf_fw_ops;
 
+		pp->pruc[i] = ppc;
+		pp->pru_to_pruc[pru_idx] = ppc;
+		i++;
+	}
+	pnode = NULL;
+
+	/* clean up the sysev to target map */
+	memset(pp->sysev_to_target, 0, sizeof(pp->sysev_to_target));
+	for (i = 0; i < ARRAY_SIZE(pp->sysev_to_target); i++) {
+		pst = &pp->sysev_to_target[i];
+		pst->source = -1;
+		pst->target = -1;
+	}
+
+	/* fill in the sysev target map for std. signaling */
+	for (i = 0; i < MAX_TARGETS; i++) {
+		for (j = 0; j < MAX_TARGETS; j++) {
+			/* target self? don't care*/
+			if (i == j)
+				continue;
+			sysev = pp->target_to_sysev[i * MAX_TARGETS + j];
+			if (sysev >= MAX_PRU_SYS_EVENTS) {
+				dev_err(dev, "Bad SYSEV %d\n", sysev);
+				goto err_fail;
+			}
+			pst = &pp->sysev_to_target[sysev];
+			if (pst->valid) {
+				dev_err(dev, "SYSEV %d overlap\n", sysev);
+				goto err_fail;
+			}
+			pst->source = i;
+			pst->target = j;
+			pst->vring = 0;
+			pst->valid = 1;
+		}
+	}
+
+	/* fill in the sysev target map from vring info */
+	for (i = 0; i < pp->num_prus; i++) {
+		ppc = pp->pruc[i];
+		pru_idx = ppc->idx;
+
+		sysev = ppc->host_vring_sysev;
+		pst = &pp->sysev_to_target[sysev];
+		if (pst->valid) {
+			dev_err(dev, "SYSEV %d overlap\n", sysev);
+			goto err_fail;
+		}
+		pst->source = TARGET_PRU(pru_idx);
+		pst->target = TARGET_ARM;
+		pst->vring = 1;
+		pst->valid = 1;
+
+		sysev = ppc->pru_vring_sysev;
+		pst = &pp->sysev_to_target[sysev];
+		if (pst->valid) {
+			dev_err(dev, "SYSEV %d overlap\n", sysev);
+			goto err_fail;
+		}
+		pst->source = TARGET_ARM;
+		pst->target = TARGET_PRU(pru_idx);
+		pst->vring = 1;
+		pst->valid = 1;
+	}
+
+	/* dump the sysev target map */
+	for (i = 0; i < ARRAY_SIZE(pp->sysev_to_target); i++) {
+		pst = &pp->sysev_to_target[i];
+		if (!pst->valid)
+			continue;
+		dev_dbg(dev, "SYSEV#%d <- VR %d SRC %d TRG %d\n",
+				i, pst->vring, pst->source, pst->target);
+	}
+
+	/* register the interrupts */
+	for (i = 0; i < pp->num_irqs; i++) {
+
+		irq = pp->irqs[i];
+		err = devm_request_irq(dev, irq, pru_handler, 0,
+				dev_name(dev), pp);
+		if (err != 0) {
+			dev_err(dev, "Failed to register irq %d\n", irq);
+			goto err_fail;
+		}
+	}
+
+	/* start the remote procs */
+	for (i = 0; i < pp->num_prus; i++) {
+		ppc = pp->pruc[i];
+
 		/* Register as a remoteproc device */
-		err = rproc_add(rproc);
+		err = rproc_add(ppc->rproc);
 		if (err) {
 			dev_err(dev, "rproc_add failed\n");
 			goto err_fail;
 		}
-
-		pp->pruc[i] = ppc;
-		i++;
 	}
-	pnode = NULL;
 
 	dev_info(dev, "Loaded OK\n");
 

@@ -144,14 +144,22 @@
 					<19 2>,	/* PRU0_ARM  -> CH2 */
 					<20 3>,	/* PRU1_ARM  -> CH3 */
 					<21 0>,	/* ARM_PRU0  -> CH0 */
-					<22 1>;	/* ARM_PRU1  -> CH1 */
+					<22 1>,	/* ARM_PRU1  -> CH1 */
+					<24 4>,	/* VRING Host->PRU0 -> CH4 */
+					<25 5>, /* VRING PRU0->Host -> CH5 */
+					<26 6>, /* VRING Host->PRU1 -> CH6 */
+					<27 7>; /* VRING PRU1->Host -> CH7 */
 
 				/* channel to host interrupt map */
 				channel-to-host-interrupt-map =
 					<0 0>,	/* CH0 -> PRU0	  */
 					<1 1>,	/* CH1 -> PRU1    */
 					<2 2>,	/* CH2 -> EVTOUT0 */
-					<3 3>;	/* CH3 -> EVTOUT1 */
+					<3 3>,	/* CH3 -> EVTOUT1 */
+					<4 0>,  /* CH4 -> PRU0    */
+					<5 6>,	/* CH5 -> EVTOUT4 */
+					<6 1>,  /* CH6 -> PRU1    */
+					<7 7>;  /* CH7 -> EVTOUT5 */
 
 				/* indices are ARM=0, PRU0=1, PRU1=2 */
 				target-to-sysevent-map =
@@ -174,6 +182,9 @@
 
 					firmware-elf;
 					firmware = "prutest.elf";
+
+					/* sysevents signaling ring activity (host, pru)*/
+					vring-sysev = <24 25>;
 
 					resource_table {
 						resource-table;
@@ -212,6 +223,9 @@
 
 					firmware-elf;
 					// firmware = "prutest-1.elf";
+
+					/* sysevents signaling ring activity (host, pru)*/
+					vring-sysev = <26 27>;
 
 					resource_table {
 						resource-table;
