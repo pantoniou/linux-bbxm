@@ -261,7 +261,15 @@ static irqreturn_t titsc_irq(int irq, void *dev)
 	unsigned int fsm;
 
 	status = titsc_readl(ts_dev, REG_IRQSTATUS);
-	if (status & IRQENB_FIFO0THRES) {
+       /*
+	* ADC and touchscreen share the IRQ line.
+	* FIFO1 threshold interrupt is used by ADC,
+	* hence return from touchscreen IRQ handler if FIFO1
+	* threshold interrupt occurred.
+	*/
+	if (status & IRQENB_FIFO1THRES)
+		return IRQ_NONE;
+	else if (status & IRQENB_FIFO0THRES) {
 
 		titsc_read_coordinates(ts_dev, &x, &y, &z1, &z2);
 
@@ -316,7 +324,7 @@ static irqreturn_t titsc_irq(int irq, void *dev)
 	}
 
 	if (irqclr) {
-		titsc_writel(ts_dev, REG_IRQSTATUS, irqclr);
+		titsc_writel(ts_dev, REG_IRQSTATUS, (status | irqclr));
 		am335x_tsc_se_update(ts_dev->mfd_tscadc);
 		return IRQ_HANDLED;
 	}
@@ -412,7 +420,7 @@ static int titsc_probe(struct platform_device *pdev)
 	}
 
 	err = request_irq(ts_dev->irq, titsc_irq,
-			  0, pdev->dev.driver->name, ts_dev);
+			  IRQF_SHARED, pdev->dev.driver->name, ts_dev);
 	if (err) {
 		dev_err(&pdev->dev, "failed to allocate irq.\n");
 		goto err_free_mem;
