@@ -24,7 +24,7 @@
 #include <linux/slab.h>
 #include <linux/spinlock.h>
 
-#include <mach/edma.h>
+#include <linux/platform_data/edma.h>
 
 #include "dmaengine.h"
 #include "virt-dma.h"
@@ -70,6 +70,7 @@ struct edma_chan {
 	bool				alloced;
 	int				slot[EDMA_MAX_SLOTS];
 	struct dma_slave_config		cfg;
+	struct dma_slave_sg_limits	sg_limits;
 };
 
 struct edma_cc {
@@ -283,8 +284,24 @@ static struct dma_async_tx_descriptor *edma_prep_slave_sg(
 		 */
 		if (burst == 1) {
 			edesc->absync = false;
+			/*
+			 * For the A-sync case, bcnt and ccnt are the remainder
+			 * and quotient respectively of the division of:
+			 * (sg_dma_len(sg) / acnt) by (SZ_64K -1). This is so
+			 * that in case bcnt over flows, we have ccnt to use.
+			 * Note: In A-sync tranfer only, bcntrld is used, but it
+			 * only applies for sg_dma_len(sg) >= SZ_64K.
+			 * In this case, the best way adopted is- bccnt for the
+			 * first frame will be the remainder below. Then for
+			 * every successive frame, bcnt will be SZ_64K-1. This
+			 * is assured as bcntrld = 0xffff in end of function.
+			 */
 			ccnt = sg_dma_len(sg) / acnt / (SZ_64K - 1);
 			bcnt = sg_dma_len(sg) / acnt - ccnt * (SZ_64K - 1);
+			/*
+			 * If bcnt is non-zero, we have a remainder and hence an
+			 * extra frame to transfer, so increment ccnt.
+			 */
 			if (bcnt)
 				ccnt++;
 			else
@@ -342,6 +359,12 @@ static struct dma_async_tx_descriptor *edma_prep_slave_sg(
 
 		edesc->pset[i].a_b_cnt = bcnt << 16 | acnt;
 		edesc->pset[i].ccnt = ccnt;
+		/*
+		 * Only time when (bcntrld) auto reload is required is for
+		 * A-sync case, and in this case, a requirement of reload value
+		 * of SZ_64K-1 only is assured. 'link' is initially set to NULL
+		 * and then later will be populated by edma_execute.
+		 */
 		edesc->pset[i].link_bcntrld = 0xffffffff;
 
 	}
@@ -462,6 +485,20 @@ static void edma_issue_pending(struct dma_chan *chan)
 	spin_unlock_irqrestore(&echan->vchan.lock, flags);
 }
 
+static struct dma_slave_sg_limits
+*edma_get_slave_sg_limits(struct dma_chan *chan,
+			enum dma_slave_buswidth addr_width,
+			u32 maxburst)
+{
+	struct edma_chan *echan;
+
+	echan = to_edma_chan(chan);
+	echan->sg_limits.max_seg_len =
+		(SZ_64K - 1) * addr_width * maxburst;
+
+	return &echan->sg_limits;
+}
+
 static size_t edma_desc_size(struct edma_desc *edesc)
 {
 	int i;
@@ -521,6 +558,7 @@ static void __init edma_chan_init(struct edma_cc *ecc,
 		echan->ch_num = EDMA_CTLR_CHAN(ecc->ctlr, i);
 		echan->ecc = ecc;
 		echan->vchan.desc_free = edma_desc_free;
+		echan->sg_limits.max_seg_nr = MAX_NR_SG;
 
 		vchan_init(&echan->vchan, dma);
 
@@ -537,6 +575,7 @@ static void edma_dma_init(struct edma_cc *ecc, struct dma_device *dma,
 	dma->device_alloc_chan_resources = edma_alloc_chan_resources;
 	dma->device_free_chan_resources = edma_free_chan_resources;
 	dma->device_issue_pending = edma_issue_pending;
+	dma->device_slave_sg_limits = edma_get_slave_sg_limits;
 	dma->device_tx_status = edma_tx_status;
 	dma->device_control = edma_control;
 	dma->dev = dev;
