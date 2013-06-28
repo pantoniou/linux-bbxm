@@ -331,15 +331,15 @@ static irqreturn_t titsc_irq(int irq, void *dev)
 	return IRQ_NONE;
 }
 
-static int titsc_parse_dt(struct platform_device *pdev,
+static int titsc_parse_dt(struct ti_tscadc_dev *tscadc_dev,
 					struct titsc *ts_dev)
 {
-	struct device_node *node = pdev->dev.of_node;
+	struct device_node *node = tscadc_dev->dev->of_node;
 	int err;
 
 	if (!node)
 		return -EINVAL;
-
+	node = of_get_child_by_name(node, "tsc");
 	err = of_property_read_u32(node, "ti,wires", &ts_dev->wires);
 	if (err < 0)
 		return err;
@@ -409,10 +409,10 @@ static int titsc_probe(struct platform_device *pdev)
 	ts_dev->input = input_dev;
 	ts_dev->irq = tscadc_dev->irq;
 
-	if (tscadc_dev->dev->platform_data)
-		err = titsc_parse_pdata(tscadc_dev, ts_dev);
-	else
-		err = titsc_parse_dt(pdev, ts_dev);
+	//if (tscadc_dev->dev->platform_data)
+	//	err = titsc_parse_pdata(tscadc_dev, ts_dev);
+	//else
+		err = titsc_parse_dt(tscadc_dev, ts_dev);
 
 	if (err) {
 		dev_err(&pdev->dev, "Could not find valid DT data.\n");
