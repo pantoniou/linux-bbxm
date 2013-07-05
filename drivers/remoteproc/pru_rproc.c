@@ -8,8 +8,6 @@
  * kind, whether express or implied.
  */
 
-#define DEBUG
-
 #include <linux/module.h>
 #include <linux/err.h>
 #include <linux/dma-mapping.h>
@@ -1097,7 +1095,7 @@ static int pru_handle_syscall(struct pruproc_core *ppc)
 
 	switch (scno) {
 		case PRU_SC_HALT:
-			dev_dbg(dev, "P%d HALT\n",
+			dev_info(dev, "P%d HALT\n",
 				ppc->idx);
 			return 1;
 
@@ -1107,7 +1105,7 @@ static int pru_handle_syscall(struct pruproc_core *ppc)
 			break;
 
 		case PRU_SC_EXIT:
-			dev_dbg(dev, "P%d EXIT %d\n",
+			dev_info(dev, "P%d EXIT %d\n",
 				ppc->idx, (int)arg0);
 			return 1;
 
@@ -1119,7 +1117,7 @@ static int pru_handle_syscall(struct pruproc_core *ppc)
 						ppc->idx, arg0);
 				ret = (u32)-1;
 			} else {
-				dev_dbg(dev, "P%d PUTS '%s'\n",
+				dev_info(dev, "P%d PUTS '%s'\n",
 					ppc->idx, (char *)va);
 			}
 			break;
@@ -1178,7 +1176,7 @@ static int pru_handle_syscall(struct pruproc_core *ppc)
 			break;
 
 		default:
-			dev_dbg(dev, "PRU #%d SC Unknown (%d)\n",
+			dev_err(dev, "PRU #%d SC Unknown (%d)\n",
 				ppc->idx, scno);
 			return 1;
 	}
@@ -1819,7 +1817,7 @@ static int pruproc_probe(struct platform_device *pdev)
 		goto err_fail;
 	}
 	/* found too many? */
-	if (pp->num_prus >= MAX_PRUS) {
+	if (pp->num_prus > MAX_PRUS) {
 		dev_err(dev, "Only 2 PRU nodes are supported\n");
 		err = -EINVAL;
 		goto err_fail;
