@@ -1009,6 +1009,150 @@ static struct rproc_ops pruproc_ops = {
 	.free_vring	= pruproc_free_vring,
 };
 
+static ssize_t pruproc_store_load(struct device *dev,
+				struct device_attribute *attr,
+				const char *buf, size_t count)
+{
+	struct platform_device *pdev = to_platform_device(dev);
+	struct pruproc *pp = platform_get_drvdata(pdev);
+	struct pruproc_core *ppc;
+	char *fw_name[MAX_PRUS];
+	const char *s, *e, *t;
+	int i, pru_idx, sz, err;
+	const struct firmware *fw;
+	u32 val;
+
+	memset(fw_name, 0, sizeof(fw_name));
+
+	s = buf;
+	while (*s != '\0' && *s != '\n') {
+		e = strchr(s, ',');
+		if (e == NULL) {
+			e = s + strlen(s);
+			while (e > buf && e[-1] == '\n')
+				e--;
+		}
+		t = strchr(s, ':');
+		if (t == NULL) {
+			t = s;
+			pru_idx = 0;
+		} else {
+			t++;
+			pru_idx = simple_strtoul(s, NULL, 10);
+		}
+
+		for (i = 0; i < pp->num_prus; i++) {
+			ppc = pp->pruc[i];
+			if (pru_idx == ppc->idx)
+				break;
+		}
+		if (i >= pp->num_prus) {
+			dev_err(dev, "Can not find PRU#%d\n", pru_idx);
+			return -EINVAL;
+		}
+
+		sz = e - t;
+		fw_name[pru_idx] = kzalloc(sz + 1, GFP_KERNEL);
+		if (fw_name[pru_idx] == NULL)
+			return -ENOMEM;
+		memcpy(fw_name[pru_idx], t, sz);
+		fw_name[pru_idx][sz] = '\0';
+
+		s = e;
+		if (*s == ',')
+			s++;
+	}
+
+	/* first halt every PRU affected */
+	for (i = 0; i < pp->num_prus; i++) {
+		ppc = pp->pruc[i];
+
+		if (fw_name[ppc->idx] == NULL)
+			continue;
+
+		/* keep it in reset */
+		pcntrl_write_reg(ppc, PCTRL_CONTROL, CONTROL_SOFT_RST_N);
+
+		dev_info(dev, "PRU#%d halted\n", ppc->idx);
+
+	}
+
+	/* load every PRU */
+	for (i = 0; i < pp->num_prus; i++) {
+		ppc = pp->pruc[i];
+		if (fw_name[ppc->idx] == NULL)
+			continue;
+
+		dev_info(dev, "PRU#%d loading %s\n", ppc->idx, fw_name[ppc->idx]);
+
+		/* note this is not the rproc device */
+		err = request_firmware(&fw, fw_name[ppc->idx], dev);
+		if (err != 0) {
+			dev_err(dev, "PRU#%d Failed to load firmware %s\n", 
+					ppc->idx, fw_name[ppc->idx]);
+			return err;
+		}
+
+		err = pruproc_elf_load_segments(ppc->rproc, fw);
+		if (err != 0) {
+			dev_err(dev, "PRU#%d Failed to update firmware %s\n", 
+					ppc->idx, fw_name[ppc->idx]);
+			return err;
+		}
+
+		release_firmware(fw);
+	}
+
+	/* start every PRU affected */
+	for (i = 0; i < pp->num_prus; i++) {
+		ppc = pp->pruc[i];
+		if (fw_name[ppc->idx] == NULL)
+			continue;
+
+		dev_info(dev, "PRU#%d starting %s\n", ppc->idx, fw_name[ppc->idx]);
+
+		val = CONTROL_ENABLE | ((ppc->entry_point >> 2) << 16);
+		pcntrl_write_reg(ppc, PCTRL_CONTROL, val);
+
+		/* and free */
+		kfree(fw_name[ppc->idx]);
+		fw_name[ppc->idx] = NULL;
+	};
+
+	return strlen(buf);
+}
+
+static ssize_t pruproc_store_reset(struct device *dev,
+				struct device_attribute *attr,
+				const char *buf, size_t count)
+{
+	struct platform_device *pdev = to_platform_device(dev);
+	struct pruproc *pp = platform_get_drvdata(pdev);
+	struct pruproc_core *ppc;
+	int i;
+	u32 val;
+
+	/* first halt every PRU affected */
+	for (i = 0; i < pp->num_prus; i++) {
+		ppc = pp->pruc[i];
+		/* keep it in reset */
+		pcntrl_write_reg(ppc, PCTRL_CONTROL, CONTROL_SOFT_RST_N);
+	}
+
+	/* start every PRU affected */
+	for (i = 0; i < pp->num_prus; i++) {
+		ppc = pp->pruc[i];
+		val = CONTROL_ENABLE | ((ppc->entry_point >> 2) << 16);
+		pcntrl_write_reg(ppc, PCTRL_CONTROL, val);
+
+	};
+
+	return strlen(buf);
+}
+
+static DEVICE_ATTR(load, S_IWUSR, NULL, pruproc_store_load);
+static DEVICE_ATTR(reset, S_IWUSR, NULL, pruproc_store_reset);
+
 /* PRU is unregistered */
 static int pruproc_remove(struct platform_device *pdev)
 {
@@ -1018,6 +1162,9 @@ static int pruproc_remove(struct platform_device *pdev)
 	int i;
 
 	dev_dbg(dev, "remove pru\n");
+
+	device_remove_file(dev, &dev_attr_reset);
+	device_remove_file(dev, &dev_attr_load);
 
 	/* Unregister as remoteproc device */
 	for (i = pp->num_prus - 1; i >= 0; i--) {
@@ -1287,11 +1434,13 @@ static irqreturn_t pru_handler(int irq, void *data)
 		}
 	}
 
+#if 0
 	if (!handled) {
-		dev_dbg(dev, "sysint not handled; disabling interrupt\n");
+		dev_err(dev, "sysint not handled; disabling interrupt\n");
 		goto disable_int;
 
 	}
+#endif
 
 	return IRQ_HANDLED;
 
@@ -2036,6 +2185,18 @@ static int pruproc_probe(struct platform_device *pdev)
 			dev_err(dev, "rproc_add failed\n");
 			goto err_fail;
 		}
+	}
+
+	err = device_create_file(dev, &dev_attr_load);
+	if (err != 0) {
+		dev_err(dev, "device_create_file failed\n");
+		goto err_fail;
+	}
+
+	err = device_create_file(dev, &dev_attr_reset);
+	if (err != 0) {
+		dev_err(dev, "device_create_file failed\n");
+		goto err_fail;
 	}
 
 	dev_info(dev, "Loaded OK\n");
