@@ -96,6 +96,9 @@ struct pruproc_core {
 	unsigned int is_elf : 1;
 	u32 entry_point;
 
+	/* number of vdevs on this core */
+	int num_vdevs;
+
 	struct resource_table *table;
 	int table_size;
 	/* copy of the resource table in device accessible area */
@@ -664,6 +667,12 @@ pruproc_find_rsc_table(struct rproc *rproc, const struct firmware *fw,
 {
 	struct pruproc_core *ppc = rproc->priv;
 
+	/* no resource table for this PRU */
+	if (ppc->table == NULL) {
+		*tablesz = 0;
+		return NULL;
+	}
+
 	*tablesz = ppc->table_size;
 	return ppc->table;
 }
@@ -696,6 +705,10 @@ static int update_dev_rsc_table(struct pruproc_core *ppc)
 	struct pru_vring_info *vri;
 	struct fw_rsc_vdev *rsc_vdev;
 	int vdev_idx, i, err, j;
+
+	/* no table; do nothing */
+	if (ppc->table == NULL)
+		return 0;
 
 	/* copy the resource table here */
 	memcpy(ppc->dev_table_va, ppc->table, ppc->table_size);
@@ -739,6 +752,10 @@ static int update_dev_rsc_table(struct pruproc_core *ppc)
 
 		vdev_idx++;
 	}
+
+	ppc->num_vdevs = vdev_idx;
+
+	dev_info(dev, "PRU#%d has %d VDEVs\n", ppc->idx, ppc->num_vdevs);
 
 	return 0;
 err_fail:
@@ -844,6 +861,10 @@ void dump_resource_table(const struct resource_table *res)
 	const struct fw_rsc_vdev *rsc_vdev;
 	const struct fw_rsc_vdev_vring *rsc_vring;
 	int i, j;
+
+	/* do nothing if given nothing */
+	if (res == NULL)
+		return;
 
 	pr_info("resource_table @%p\n", res);
 	pr_info(" .ver = 0x%08x\n", res->ver);
@@ -1467,11 +1488,6 @@ static int build_rsc_table(struct platform_device *pdev,
 	void *table, *p;
 	int i, err, table_size, num_vrings;
 
-	if (node == NULL) {
-		dev_err(dev, "No OF device node\n");
-		return -EINVAL;
-	}
-
 	/* verify OF data */
 
 	/* first find a valid resource-table node */
@@ -1482,8 +1498,8 @@ static int build_rsc_table(struct platform_device *pdev,
 
 	/* no resource node found */
 	if (rnode == NULL) {
-		dev_err(dev, "No resource-table node node\n");
-		return -EINVAL;
+		dev_warn(dev, "No resource-table node node; slave PRU\n");
+		return 0;
 	}
 
 	/* now find out the vdev node */
@@ -2060,18 +2076,19 @@ static int pruproc_probe(struct platform_device *pdev)
 
 		/* read vring sysevent array */
 		err = of_property_read_u32_array(pnode, "vring-sysev", tmparr, 2);
-		if (err != 0) {
-			dev_err(dev, "no vring-sysev property\n");
-			goto err_fail;
+		if (err == 0) {
+			/* verify */
+			if (tmparr[0] >= MAX_PRU_SYS_EVENTS ||
+					tmparr[1] >= MAX_PRU_SYS_EVENTS) {
+				dev_err(dev, "illegal vring-sysev property\n");
+				goto err_fail;
+			}
+			ppc->pru_vring_sysev = tmparr[0];
+			ppc->host_vring_sysev = tmparr[1];
+		} else {
+			ppc->pru_vring_sysev = -1;
+			ppc->host_vring_sysev = -1;
 		}
-		/* verify */
-		if (tmparr[0] >= MAX_PRU_SYS_EVENTS ||
-				tmparr[1] >= MAX_PRU_SYS_EVENTS) {
-			dev_err(dev, "illegal vring-sysev property\n");
-			goto err_fail;
-		}
-		ppc->pru_vring_sysev = tmparr[0];
-		ppc->host_vring_sysev = tmparr[1];
 
 		/* check firmware type */
 		ppc->is_elf = of_property_read_bool(pnode, "firmware-elf");
@@ -2132,26 +2149,30 @@ static int pruproc_probe(struct platform_device *pdev)
 		pru_idx = ppc->idx;
 
 		sysev = ppc->host_vring_sysev;
-		pst = &pp->sysev_to_target[sysev];
-		if (pst->valid) {
-			dev_err(dev, "SYSEV %d overlap\n", sysev);
-			goto err_fail;
+		if (sysev != -1) {
+			pst = &pp->sysev_to_target[sysev];
+			if (pst->valid) {
+				dev_err(dev, "SYSEV %d overlap\n", sysev);
+				goto err_fail;
+			}
+			pst->source = TARGET_PRU(pru_idx);
+			pst->target = TARGET_ARM;
+			pst->vring = 1;
+			pst->valid = 1;
 		}
-		pst->source = TARGET_PRU(pru_idx);
-		pst->target = TARGET_ARM;
-		pst->vring = 1;
-		pst->valid = 1;
 
 		sysev = ppc->pru_vring_sysev;
-		pst = &pp->sysev_to_target[sysev];
-		if (pst->valid) {
-			dev_err(dev, "SYSEV %d overlap\n", sysev);
-			goto err_fail;
+		if (sysev != -1) {
+			pst = &pp->sysev_to_target[sysev];
+			if (pst->valid) {
+				dev_err(dev, "SYSEV %d overlap\n", sysev);
+				goto err_fail;
+			}
+			pst->source = TARGET_ARM;
+			pst->target = TARGET_PRU(pru_idx);
+			pst->vring = 1;
+			pst->valid = 1;
 		}
-		pst->source = TARGET_ARM;
-		pst->target = TARGET_PRU(pru_idx);
-		pst->vring = 1;
-		pst->valid = 1;
 	}
 
 	/* dump the sysev target map */
@@ -2184,6 +2205,15 @@ static int pruproc_probe(struct platform_device *pdev)
 		if (err) {
 			dev_err(dev, "rproc_add failed\n");
 			goto err_fail;
+		}
+
+		/* directly boot all processors that don't have VDEVs */
+		if (ppc->num_vdevs == 0) {
+			err = rproc_boot(ppc->rproc);
+			if (err) {
+				dev_err(dev, "rproc_boot failed\n");
+				goto err_fail;
+			}
 		}
 	}
 
