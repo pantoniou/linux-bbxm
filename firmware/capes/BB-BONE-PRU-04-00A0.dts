@@ -281,27 +281,7 @@
 					firmware-elf;
 					firmware = "testpru1";
 
-					/* sysevents signaling ring activity (host, pru)*/
-					vring-sysev = <26 27>;
-
-					resource_table {
-						resource-table;
-						version = <1>;
-
-						/*
-						 * without a device, remoteproc doesn't
-						 * boot the processor
-						 * NOTE: We don't use the ring from this
-						 */
-						vdev {
-							vdev;
-							notifyid = <16>; /* <- bogus */
-							/* da align num notifyid */
-							/* host allocates */
-							vring-0 = <0 16 8 0>;
-							vring-1 = <0 16 8 0>;
-						};
-					};
+					/* NOTE: no resource table, no vrings for this one */
 				};
 			};
 		};
