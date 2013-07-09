@@ -28,7 +28,7 @@
 		"P9.28",	/* pru0: pr1_pru0_pru_r30_3 */
 		"P9.30",	/* pru0: pr1_pru0_pru_r30_2 */
 		"P9.29",	/* pru0: pr1_pru0_pru_r30_1 */
-		"P9.31",	/* pru0: pr1_pru0_pru_r30_1 */
+		"P9.31",	/* pru0: pr1_pru0_pru_r30_0 */
 				/* pru0: pr1_pru0_pru_r30_13 is on MMC0_CMD */
 				/* pru0: pr1_pru0_pru_r30_12 is on MMC0_CLK */
 				/* pru0: pr1_pru0_pru_r30_11 is on MMC0_DAT0 */
