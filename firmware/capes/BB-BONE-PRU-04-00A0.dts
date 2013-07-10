@@ -247,12 +247,8 @@
 						resource-table;
 						version = <1>;
 
-						/*
-						 * without a device, remoteproc doesn't
-						 * boot the processor
-						 */
-						vdev {
-							vdev;
+						pru0_rproc_serial: pru0_vdev_rproc_serial {
+							vdev-rproc-serial;
 
 							/* notification IDs are totally bogus */
 							/* rproc will idr_alloc anyway */
