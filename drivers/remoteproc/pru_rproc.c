@@ -28,6 +28,7 @@
 #include <linux/byteorder/generic.h>
 #include <linux/virtio.h>
 #include <linux/virtio_ring.h>
+#include <asm/atomic.h>
 
 #include "remoteproc_internal.h"
 
@@ -118,6 +119,9 @@ struct pruproc_core {
 
 	/* sysevent the pru generates when kicking any vring */
 	int pru_vring_sysev;
+
+	/* boots */
+	atomic_t bootcnt;
 };
 
 struct pru_sysev_target {
@@ -693,6 +697,7 @@ void *get_resource_type(struct resource_table *res,
 			continue;
 		if (j == idx)
 			return &rsc_hdr->data[0];
+		j++;
 	}
 
 	return NULL;
@@ -729,16 +734,16 @@ static int update_dev_rsc_table(struct pruproc_core *ppc)
 			cnt++;
 		}
 		if (cnt != vdev_idx) {
-			dev_err(dev, "rsc_vdev not found\n");
-			err = -ENOENT;
-			goto err_fail;
+			dev_warn(dev, "rsc_vdev not found (continuing anyway)\n");
+			rvdev = NULL;
 		}
 
 		/* locate the vdev resource in the device memory */
 		rsc_vdev = get_resource_type(ppc->dev_table_va, RSC_VDEV,
 				vdev_idx);
 		if (rsc_vdev == NULL) {
-			dev_err(dev, "Failed to get RSV_VDEV #%d\n", vdev_idx);
+			dev_err(dev, "PRU#%d Failed to get RSV_VDEV #%d\n",
+					ppc->idx, vdev_idx);
 			err = -EINVAL;
 			goto err_fail;
 		}
@@ -746,14 +751,21 @@ static int update_dev_rsc_table(struct pruproc_core *ppc)
 		for (i = 0; i < num_vrings; i++) {
 			j = vring_start + i;
 
-			rvring = &rvdev->vring[i];
 			vri = &ppc->vring_info[j];
+
+			if (rvdev != NULL)
+				rvring = &rvdev->vring[i];
+			else
+				rvring = NULL;
 
 			/* keep track of rproc's rvring */
 			vri->rvring = rvring;
 
 			rsc_vdev->vring[i].da = vri->da;
-			rsc_vdev->vring[i].notifyid = rvring->notifyid;
+			if (rvring != NULL)
+				rsc_vdev->vring[i].notifyid = rvring->notifyid;
+			else
+				rsc_vdev->vring[i].notifyid = -1;	/* mark that it's not ready yet */
 
 			dev_info(dev, "VDEV#%d VR#%d da=0x%08x notifyid=0x%08x\n",
 					vdev_idx, i, vri->da, rvring->notifyid);
@@ -961,21 +973,31 @@ static int pruproc_start(struct rproc *rproc)
 	u32 val;
 	int err;
 
-	dev_dbg(dev, "start PRU #%d entry-point 0x%x - dump of vrings follow\n",
-			ppc->idx, ppc->entry_point);
+	/* start the processors only when all devices have booted */
+	if (ppc->num_vdevs == 0 || atomic_inc_return(&ppc->bootcnt) == 1) {
 
-	/* we have to copy the resource table and update the device addresses */
+		dev_info(dev, "start PRU #%d entry-point 0x%x\n",
+				ppc->idx, ppc->entry_point);
 
-	err = update_dev_rsc_table(ppc);
-	if (err != 0) {
-		dev_err(dev, "failed to update resource table\n");
-		return err;
+#if 1
+		if (ppc->table)
+			dump_resource_table(ppc->table);
+
+		err = update_dev_rsc_table(ppc);
+		if (err != 0) {
+			dev_err(dev, "failed to update resource table\n");
+			return err;
+		}
+
+		if (ppc->dev_table_va)
+			dump_resource_table(ppc->dev_table_va);
+
+#endif
+
+
+		val = CONTROL_ENABLE | ((ppc->entry_point >> 2) << 16);
+		pcntrl_write_reg(ppc, PCTRL_CONTROL, val);
 	}
-
-	dump_resource_table(ppc->dev_table_va);
-
-	val = CONTROL_ENABLE | ((ppc->entry_point >> 2) << 16);
-	pcntrl_write_reg(ppc, PCTRL_CONTROL, val);
 
 	return 0;
 }
@@ -984,8 +1006,18 @@ static int pruproc_start(struct rproc *rproc)
 static int pruproc_stop(struct rproc *rproc)
 {
 	struct device *dev = &rproc->dev;
+	struct pruproc_core *ppc = rproc->priv;
+	u32 val;
 
-	dev_dbg(dev, "stop PRU\n");
+	/* we have to copy the resource table and update the device addresses */
+	if (1 || ppc->num_vdevs == 0 || atomic_dec_return(&ppc->bootcnt) == 0) {
+
+		dev_info(dev, "PRU#%d stop\n", ppc->idx);
+
+		val = pcntrl_read_reg(ppc, PCTRL_CONTROL);
+		val &= ~CONTROL_ENABLE;
+		pcntrl_write_reg(ppc, PCTRL_CONTROL, val);
+	}
 
 	return 0;
 }
@@ -2109,6 +2141,8 @@ static int pruproc_probe(struct platform_device *pdev)
 		ppc->idx = pru_idx;
 		ppc->pruproc = pp;
 		ppc->rproc = rproc;
+
+		atomic_set(&ppc->bootcnt, 0);
 
 		err = of_property_read_u32_array(pnode, "iram", tmparr, 3);
 		if (err != 0) {
