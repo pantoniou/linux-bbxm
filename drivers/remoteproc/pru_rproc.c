@@ -104,7 +104,6 @@ struct pruproc_core {
 	void * __iomem dev_table_va;
 	dma_addr_t dev_table_pa;
 
-	struct fw_rsc_hdr *rsc_hdr;
 	int num_vdevs;
 	struct fw_rsc_vdev *rsc_vdev[PRU_VDEV_MAX];
 	int vdev_vring_start[PRU_VDEV_MAX];
@@ -708,7 +707,7 @@ static int update_dev_rsc_table(struct pruproc_core *ppc)
 	struct rproc_vring *rvring;
 	struct pru_vring_info *vri;
 	struct fw_rsc_vdev *rsc_vdev;
-	int vdev_idx, i, err, j;
+	int vdev_idx, i, cnt, err, j, vring_start, num_vrings;
 
 	/* no table; do nothing */
 	if (ppc->table == NULL)
@@ -718,7 +717,50 @@ static int update_dev_rsc_table(struct pruproc_core *ppc)
 	memcpy(ppc->dev_table_va, ppc->table, ppc->table_size);
 
 	/* everything is initialized; fill in the real da & notify ids */
-	vdev_idx = 0;
+	for (vdev_idx = 0; vdev_idx < ppc->num_vdevs; vdev_idx++) {
+		vring_start = ppc->vdev_vring_start[vdev_idx];
+		num_vrings = ppc->vdev_vring_count[vdev_idx];
+
+		/* find rvdev */
+		cnt = 0;
+		list_for_each_entry(rvdev, &rproc->rvdevs, node) {
+			if (cnt == vdev_idx)
+				break;
+			cnt++;
+		}
+		if (cnt != vdev_idx) {
+			dev_err(dev, "rsc_vdev not found\n");
+			err = -ENOENT;
+			goto err_fail;
+		}
+
+		/* locate the vdev resource in the device memory */
+		rsc_vdev = get_resource_type(ppc->dev_table_va, RSC_VDEV,
+				vdev_idx);
+		if (rsc_vdev == NULL) {
+			dev_err(dev, "Failed to get RSV_VDEV #%d\n", vdev_idx);
+			err = -EINVAL;
+			goto err_fail;
+		}
+
+		for (i = 0; i < num_vrings; i++) {
+			j = vring_start + i;
+
+			rvring = &rvdev->vring[i];
+			vri = &ppc->vring_info[j];
+
+			/* keep track of rproc's rvring */
+			vri->rvring = rvring;
+
+			rsc_vdev->vring[i].da = vri->da;
+			rsc_vdev->vring[i].notifyid = rvring->notifyid;
+
+			dev_info(dev, "VDEV#%d VR#%d da=0x%08x notifyid=0x%08x\n",
+					vdev_idx, i, vri->da, rvring->notifyid);
+		}
+	}
+
+#if 0
 	j = 0;
 	list_for_each_entry(rvdev, &rproc->rvdevs, node) {
 
@@ -756,6 +798,7 @@ static int update_dev_rsc_table(struct pruproc_core *ppc)
 
 		vdev_idx++;
 	}
+#endif
 
 	return 0;
 err_fail:
@@ -1569,11 +1612,9 @@ static int build_rsc_table(struct platform_device *pdev,
 			continue;
 
 		rsc_hdr = p;
-		rsc->offset[0] = p - table;
-
+		rsc->offset[vdev_idx] = p - table;
 		/* resource header */
 		p += sizeof(*rsc_hdr);
-		ppc->rsc_hdr = rsc_hdr;
 
 		rsc_hdr->type = RSC_VDEV;
 
