@@ -69,7 +69,9 @@
 struct pruproc;
 struct pruproc_core;
 
-#define PRU_VRING_MAX	8
+/* maximum 4 vdevs per PRU */
+#define PRU_VDEV_MAX	4
+#define PRU_VRING_MAX	(RVDEV_NUM_VRINGS * PRU_VDEV_MAX)
 
 struct pru_vring_info {
 	struct fw_rsc_vdev_vring *rsc;
@@ -96,9 +98,6 @@ struct pruproc_core {
 	unsigned int is_elf : 1;
 	u32 entry_point;
 
-	/* number of vdevs on this core */
-	int num_vdevs;
-
 	struct resource_table *table;
 	int table_size;
 	/* copy of the resource table in device accessible area */
@@ -106,7 +105,12 @@ struct pruproc_core {
 	dma_addr_t dev_table_pa;
 
 	struct fw_rsc_hdr *rsc_hdr;
-	struct fw_rsc_vdev *rsc_vdev;
+	int num_vdevs;
+	struct fw_rsc_vdev *rsc_vdev[PRU_VDEV_MAX];
+	int vdev_vring_start[PRU_VDEV_MAX];
+	int vdev_vring_count[PRU_VDEV_MAX];
+
+	/* total for all the vdevs */
 	int num_vrings;
 	struct pru_vring_info vring_info[PRU_VRING_MAX];
 
@@ -141,7 +145,7 @@ struct pruproc {
 	int ch_to_host[MAX_PRU_CHANNELS];
 	int target_to_sysev[MAX_TARGETS * MAX_TARGETS];
 
-	/* map an incoming sysevent to kind and handler */ 
+	/* map an incoming sysevent to kind and handler */
 	struct pru_sysev_target sysev_to_target[MAX_PRU_SYS_EVENTS];
 
 	/* number of prus */
@@ -677,7 +681,7 @@ pruproc_find_rsc_table(struct rproc *rproc, const struct firmware *fw,
 	return ppc->table;
 }
 
-void *get_resource_type(struct resource_table *res, 
+void *get_resource_type(struct resource_table *res,
 		int type, int idx)
 {
 	struct fw_rsc_hdr *rsc_hdr;
@@ -752,10 +756,6 @@ static int update_dev_rsc_table(struct pruproc_core *ppc)
 
 		vdev_idx++;
 	}
-
-	ppc->num_vdevs = vdev_idx;
-
-	dev_info(dev, "PRU#%d has %d VDEVs\n", ppc->idx, ppc->num_vdevs);
 
 	return 0;
 err_fail:
@@ -969,7 +969,7 @@ static void *pruproc_alloc_vring(struct rproc *rproc,
 	}
 
 	if (i >= ppc->num_vrings) {
-		dev_err(dev, "PRU #%d could not find rsc_vring at %p\n", 
+		dev_err(dev, "PRU #%d could not find rsc_vring at %p\n",
 				ppc->idx, rsc_vring);
 		return NULL;
 	}
@@ -989,14 +989,14 @@ static void *pruproc_alloc_vring(struct rproc *rproc,
 	}
 
 	if (va == NULL) {
-		dev_err(dev, "PRU #%d could not allocate vring %p\n", 
+		dev_err(dev, "PRU #%d could not allocate vring %p\n",
 				ppc->idx, rsc_vring);
 		return NULL;
 	}
 
 	/* setup vring for use */
 	vri = &ppc->vring_info[i];
-	vring = &vri->vr; 
+	vring = &vri->vr;
 	vring_init(vring, rsc_vring->num, va, rsc_vring->align);
 
 	/* save VA & PA */
@@ -1109,14 +1109,14 @@ static ssize_t pruproc_store_load(struct device *dev,
 		/* note this is not the rproc device */
 		err = request_firmware(&fw, fw_name[ppc->idx], dev);
 		if (err != 0) {
-			dev_err(dev, "PRU#%d Failed to load firmware %s\n", 
+			dev_err(dev, "PRU#%d Failed to load firmware %s\n",
 					ppc->idx, fw_name[ppc->idx]);
 			return err;
 		}
 
 		err = pruproc_elf_load_segments(ppc->rproc, fw);
 		if (err != 0) {
-			dev_err(dev, "PRU#%d Failed to update firmware %s\n", 
+			dev_err(dev, "PRU#%d Failed to update firmware %s\n",
 					ppc->idx, fw_name[ppc->idx]);
 			return err;
 		}
@@ -1268,7 +1268,7 @@ static int pru_handle_syscall(struct pruproc_core *ppc)
 			return 1;
 
 		case PRU_SC_PUTC:
-			dev_info(dev, "P%d PUTC '%c'\n", 
+			dev_info(dev, "P%d PUTC '%c'\n",
 				ppc->idx, (char)(arg0 & 0xff));
 			break;
 
@@ -1434,7 +1434,7 @@ static irqreturn_t pru_handler(int irq, void *data)
 
 	handled = 0;
 
-	/* we either handle a vring or not */ 
+	/* we either handle a vring or not */
 	if (!pst->vring) {
 		ret = pru_handle_syscall(ppc);
 		if (ret == 0) 	/* system call handled */
@@ -1486,7 +1486,7 @@ static int build_rsc_table(struct platform_device *pdev,
 	u32 vring_data[4], val;
 	struct fw_rsc_vdev_vring *rsc_vring;
 	void *table, *p;
-	int i, err, table_size, num_vrings;
+	int i, err, table_size, num_vrings, num_vdevs, vdev_idx, vring_start;
 
 	/* verify OF data */
 
@@ -1502,29 +1502,41 @@ static int build_rsc_table(struct platform_device *pdev,
 		return 0;
 	}
 
-	/* now find out the vdev node */
-	for_each_child_of_node(rnode, rvnode) {
-		if (of_property_read_bool(rvnode, "vdev"))
-			break;
-	}
+	/* count number of vdevs & vrings */
 
 	table_size = sizeof(struct resource_table);
 
+	num_vdevs = 0;
 	num_vrings = 0;
-	if (rvnode != NULL) {
-		for (num_vrings = 0; num_vrings < ARRAY_SIZE(ppc->vring_info); num_vrings++) {
-			snprintf(vring_name, sizeof(vring_name), "vring-%d",
-					num_vrings);
+	for_each_child_of_node(rnode, rvnode) {
+
+		if (!of_property_read_bool(rvnode, "vdev-rproc-serial") &&
+			!of_property_read_bool(rvnode, "vdev-rpmsg"))
+			continue;
+
+		/* size per each vdev */
+		table_size += sizeof(u32) +
+		     sizeof(struct fw_rsc_hdr) +
+		     sizeof(struct fw_rsc_vdev);
+
+		ppc->vdev_vring_start[num_vdevs] = num_vrings;
+		for (i = 0; num_vrings < ARRAY_SIZE(ppc->vring_info); i++) {
+			snprintf(vring_name, sizeof(vring_name), "vring-%d", i);
 			if (of_property_read_u32_array(rvnode, vring_name,
 					vring_data, ARRAY_SIZE(vring_data)) != 0)
 				break;
+			num_vrings++;
 		}
+		ppc->vdev_vring_count[num_vdevs] = i;
 
-		table_size += sizeof(u32) +
-		     sizeof(struct fw_rsc_hdr) +
-		     sizeof(struct fw_rsc_vdev) +
-		     sizeof(struct fw_rsc_vdev_vring) * num_vrings;
+		/* size for the rings */
+		table_size += i * sizeof(struct fw_rsc_vdev_vring);
+
+		num_vdevs++;
 	}
+
+	dev_info(dev, "PRU%d #%d vdevs, #%d vrings total\n",
+			ppc->idx, num_vdevs, num_vrings);
 
 	table = devm_kzalloc(dev, table_size, GFP_KERNEL);
 	if (table == NULL) {
@@ -1534,7 +1546,7 @@ static int build_rsc_table(struct platform_device *pdev,
 	}
 	ppc->table = table;
 	ppc->table_size = table_size;
-
+	ppc->num_vdevs = num_vdevs;
 	ppc->num_vrings = num_vrings;
 
 	p = table;	/* pointer at start */
@@ -1543,14 +1555,18 @@ static int build_rsc_table(struct platform_device *pdev,
 	rsc = p;
 	p += sizeof(*rsc);
 	rsc->ver = 1;	/* resource table version 1 */
-	if (rvnode != NULL)
-		rsc->num = 1;	/* only support vdev for now */
-	else
-		rsc->num = 0;
+	rsc->num = ppc->num_vdevs;
 
-	/* offsets */
 	p += rsc->num * sizeof(u32);	/* point after offsets */
-	if (rsc->num > 0) {
+
+	vdev_idx = 0;
+
+	/* now loop over the vdevs */
+	for_each_child_of_node(rnode, rvnode) {
+
+		if (!of_property_read_bool(rvnode, "vdev-rproc-serial") &&
+			!of_property_read_bool(rvnode, "vdev-rpmsg"))
+			continue;
 
 		rsc_hdr = p;
 		rsc->offset[0] = p - table;
@@ -1564,12 +1580,16 @@ static int build_rsc_table(struct platform_device *pdev,
 		/* vdev */
 		rsc_vdev = p;
 		p += sizeof(*rsc_vdev);
-		ppc->rsc_vdev = rsc_vdev;
+		ppc->rsc_vdev[vdev_idx] = rsc_vdev;
 
-		/* Use serial (dumb char device) for now */
-		rsc_vdev->id = VIRTIO_ID_RPROC_SERIAL;
-		// rsc_vdev->id = VIRTIO_ID_CONSOLE;
-		// rsc_vdev->id = VIRTIO_ID_RPMSG;
+		if (of_property_read_bool(rvnode, "vdev-rproc-serial")) {
+			rsc_vdev->id = VIRTIO_ID_RPROC_SERIAL;
+			/* extra configuration possible here */
+		} else if (of_property_read_bool(rvnode, "vdev-rpmsg")) {
+			rsc_vdev->id = VIRTIO_ID_RPMSG;
+			/* extra configuration possible here */
+		}
+
 		err = of_property_read_u32(rvnode, "notifyid", &val);
 		if (err != 0) {
 			dev_err(dev, "no notifyid vdev property\n");
@@ -1580,13 +1600,18 @@ static int build_rsc_table(struct platform_device *pdev,
 		rsc_vdev->gfeatures = 0;
 		rsc_vdev->config_len = 0;
 		rsc_vdev->status = 0;
+
+		/* start and count for vrings for this vdev */
+		vring_start = ppc->vdev_vring_start[vdev_idx];
+		num_vrings = ppc->vdev_vring_count[vdev_idx];
+
 		rsc_vdev->num_of_vrings = num_vrings;
 
 		for (i = 0; i < num_vrings; i++) {
 			rsc_vring = p;
 			p += sizeof(*rsc_vring);
 
-			vri = &ppc->vring_info[i];
+			vri = &ppc->vring_info[i + vring_start];
 
 			vri->rsc = rsc_vring;
 
@@ -1603,6 +1628,8 @@ static int build_rsc_table(struct platform_device *pdev,
 			rsc_vring->num = vring_data[2];
 			rsc_vring->notifyid = vring_data[3];
 		}
+
+		vdev_idx++;
 	}
 
 	/* all done, create the device copy */
@@ -1618,7 +1645,6 @@ static int build_rsc_table(struct platform_device *pdev,
 	err = 0;
 
 err_fail:
-	of_node_put(rvnode);	/* of_node_put(NULL) is a NOP */
 	of_node_put(rnode);
 
 	return err;
@@ -1960,7 +1986,7 @@ static int pruproc_probe(struct platform_device *pdev)
 	pp->pdram_sz = tmparr[1];
 	pp->pdram_da = tmparr[2];
 
-	/* configure PRU interrupt controller from DT */ 
+	/* configure PRU interrupt controller from DT */
 	err = configure_pintc(pdev, pp);
 	if (err != 0) {
 		dev_err(dev, "failed to configure pintc\n");
