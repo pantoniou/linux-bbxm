@@ -1,0 +1,7 @@
+config PVR_SGX
+       tristate "PowerVR SGX support"
+       help
+          This enables PowerVR SGX support.
+
+	  To compile this driver as a module, say M here:  the module will
+	  be called firewire-serial.
