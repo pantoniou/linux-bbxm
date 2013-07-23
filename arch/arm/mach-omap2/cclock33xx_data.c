@@ -771,6 +771,28 @@ DEFINE_CLK_DIVIDER_TABLE(gfx_fck_div_ck, "gfx_fclk_clksel_ck",
 			 AM33XX_CLKSEL_0_0_SHIFT, AM33XX_CLKSEL_0_0_WIDTH,
 			 0x0, div_1_0_2_1_rates, NULL);
 
+#if 0
+static const struct clksel gfx_div_sel[] = {
+	{ .parent = &gfx_fclk_clksel_ck, .rates = div_1_0_2_1_rates },
+	{ .parent = NULL },
+};
+
+static struct clk gfx_fclk = {
+	.name           = "gfx_fclk",
+	.clkdm_name     = "gfx_l3_clkdm",
+	.parent         = &gfx_fclk_clksel_ck,
+	.clksel         = gfx_div_sel,
+	.enable_reg     = AM33XX_CM_GFX_GFX_CLKCTRL,
+	.enable_bit     = AM33XX_MODULEMODE_SWCTRL,
+	.clksel_reg     = AM33XX_CLKSEL_GFX_FCLK,
+	.clksel_mask    = AM33XX_CLKSEL_0_0_MASK,
+	.recalc         = &omap2_clksel_recalc,
+	.round_rate     = &omap2_clksel_round_rate,
+	.set_rate       = &omap2_clksel_set_rate,
+	.ops            = &clkops_omap2_dflt,
+};
+#endif
+
 static const char *sysclkout_ck_parents[] = {
 	"clk_32768_ck", "l3_gclk", "dpll_ddr_m2_ck", "dpll_per_m2_ck",
 	"lcd_gclk",

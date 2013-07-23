@@ -201,7 +201,7 @@ PVRSRV_ERROR EnableSGXClocks(SYS_DATA *psSysData)
 	PVR_DPF((PVR_DBG_MESSAGE, "EnableSGXClocks: Enabling SGX Clocks"));
 #if !defined(PM_RUNTIME_SUPPORT)
         PVR_DPF((PVR_DBG_MESSAGE, "EnableSGXClocks: Enabling SGX Clocks"));
-        res=clk_enable(psSysSpecData->psSGX_FCK);
+        res=clk_prepare_enable(psSysSpecData->psSGX_FCK);
         if (res < 0)
         {
                 PVR_DPF((PVR_DBG_ERROR, "EnableSGXClocks: Couldn't enable SGX functional clock (%d)", res));
@@ -544,14 +544,14 @@ static PVRSRV_ERROR AcquireGPTimer(SYS_SPECIFIC_DATA *psSysSpecData)
 	rate = clk_get_rate(psSysSpecData->psGPT11_FCK);
 	PVR_TRACE(("GPTIMER11 clock is %dMHz", HZ_TO_MHZ(rate)));
 
-	res = clk_enable(psSysSpecData->psGPT11_FCK);
+	res = clk_prepare_enable(psSysSpecData->psGPT11_FCK);
 	if (res < 0)
 	{
 		PVR_DPF((PVR_DBG_ERROR, "EnableSystemClocks: Couldn't enable GPTIMER11 functional clock (%d)", res));
 		goto ExitError;
 	}
 
-	res = clk_enable(psSysSpecData->psGPT11_ICK);
+	res = clk_prepare_enable(psSysSpecData->psGPT11_ICK);
 	if (res < 0)
 	{
 		PVR_DPF((PVR_DBG_ERROR, "EnableSystemClocks: Couldn't enable GPTIMER11 interface clock (%d)", res));
@@ -715,7 +715,7 @@ PVRSRV_ERROR EnableSystemClocks(SYS_DATA *psSysData)
 
 		psSysSpecData->bSysClocksOneTimeInit = IMG_TRUE;
 #if !defined(PM_RUNTIME_SUPPORT)
-                psCLK = clk_get(NULL, "sgx_ck");
+                psCLK = clk_get(NULL, "gfx_fck_div_ck" /* "sgx_ck" */);
                 if (IS_ERR(psCLK))
                 {
                         PVR_DPF((PVR_DBG_ERROR, "EnableSsystemClocks: Couldn't get SGX Functional Clock"));
