@@ -255,7 +255,7 @@ static int pca9685_pwm_probe(struct i2c_client *client,
 
 	pca->chip.dev = &client->dev;
 	pca->chip.base = -1;
-	pca->chip.can_sleep = true;
+	/* pca->chip.can_sleep = true; */
 
 	return pwmchip_add(&pca->chip);
 }
