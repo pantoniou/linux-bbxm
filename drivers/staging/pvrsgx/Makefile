@@ -2,11 +2,36 @@
 
 TI_PLATFORM := ti335x
 
-PVR_BUILD_DIR := $(shell pwd)
-DATE := $(shell date "+%a %B %d %Z %Y" )
-BUILD := "release"
+PVR_BUILD_DIR:=$(shell pwd)
+DATE:=$(shell date "+%a %B %d %Z %Y" )
+BUILD:=release
 
 PVRSRV_MODNAME := pvrsrvkm
+
+# default compiler options
+ccflags-y += -fno-strict-aliasing -Wno-pointer-arith
+
+# default build definitions
+ccflags-y += \
+	-DLINUX \
+	-DPVR_BUILD_DIR="\"$(PVR_BUILD_DIR)\"" \
+	-DPVR_BUILD_DATE="\"$(DATE)\"" \
+	-DPVR_BUILD_TYPE="\"$(BUILD)\"" \
+	-DPVRSRV_MODNAME="\"$(PVRSRV_MODNAME)\""
+
+# default includes
+ccflags-y += \
+	-I$(src)/include4 \
+	-I$(src)/services4/include \
+	-I$(src)/services4/srvkm/include \
+	-I$(src)/services4/srvkm/hwdefs \
+	-I$(src)/services4/srvkm/bridged \
+	-I$(src)/services4/srvkm/devices/sgx \
+	-I$(src)/services4/srvkm/env/linux \
+	-I$(src)/services4/system/include \
+	-I$(src)/services4/system/$(TI_PLATFORM) \
+	-I$(src)/services4/srvkm/bridged/sgx \
+	-I$(src)/services4/include/env/linux
 
 ccflags-y += \
 	-DSGXCORE=530 \
@@ -16,13 +41,9 @@ ccflags-y += \
 	-DSUPPORT_SGX \
 	-DSUPPORT_TI_PM \
 	-DPVR2D_ALT_2DHW \
-	-DSUPPORT_ACTIVE_POWER_MANAGEMENT \
 	-DSYS_USING_INTERRUPTS \
 	-DSUPPORT_HW_RECOVERY \
-	-DSUPPORT_SECURE_DRM_AUTH_EXPORT \
-	-DSUPPORT_DRI_DRM \
-	-DPVR_SECURE_DRM_AUTH_EXPORT \
-	-DSUPPORT_XWS \
+	-DSUPPORT_SGX_HWPERF \
 	-DTRANSFER_QUEUE \
 	-DSUPPORT_SGX_EVENT_OBJECT \
 	-DPVR_SECURE_HANDLES \
@@ -42,33 +63,45 @@ ccflags-y += \
 	-DSGX_CLK_CORE_DIV5 \
 	-DSUPPORT_SGX_NEW_STATUS_VALS \
 	-DLDM_PLATFORM \
-	-DPVR_DRI_DRM_NOT_PCI \
-	-DSUPPORT_DRI_DRM_NO_LIBDRM \
-	-DSUPPORT_DRI_DRM_PLUGIN \
-	-DLINUX \
-	\
-	-fno-strict-aliasing -Wno-pointer-arith \
-	\
-	-DPVR_BUILD_DIR="\"$(PVR_BUILD_DIR)\"" \
-	-DPVR_BUILD_DATE="\"$(DATE)\"" \
-	-DPVR_BUILD_TYPE="\"$(BUILD)\"" \
-	-DPVRSRV_MODNAME="\"$(PVRSRV_MODNAME)\"" \
-	\
-	-I$(src)/include4 \
-	-I$(src)/services4/include \
-	-I$(src)/services4/srvkm/include \
-	-I$(src)/services4/srvkm/hwdefs \
-	-I$(src)/services4/srvkm/bridged \
-	-I$(src)/services4/srvkm/devices/sgx \
-	-I$(src)/services4/srvkm/env/linux \
-	-I$(src)/services4/system/include \
-	-I$(src)/services4/system/$(TI_PLATFORM) \
-	-I$(src)/services4/srvkm/bridged/sgx \
-	\
-	-I$(src)/services4/include/env/linux \
 	\
 	-I$(srctree)/arch/arm/mach-omap2
 
+# ccflags-y += \
+	-DSUPPORT_DRI_DRM \
+	-DPVR_DRI_DRM_NOT_PCI \
+	-DSUPPORT_DRI_DRM_NO_LIBDRM \
+	-DSUPPORT_SECURE_DRM_AUTH_EXPORT \
+	-DPVR_SECURE_DRM_AUTH_EXPORT \
+	-DSUPPORT_XWS
+
+# ccflags-y += \
+	-DSUPPORT_DRI_DRM_PLUGIN
+
+# ccflags-y += \
+	-DSUPPORT_ACTIVE_POWER_MANAGEMENT
+
+ccflags-y += \
+	-DPVR_DRI_DRM_PLATFORM_DEV \
+	-DPVR_LDM_PLATFORM_PRE_REGISTERED \
+	-DPVR_LDM_PLATFORM_PRE_REGISTERED_DEV="\"$(PVRSRV_MODNAME)\"" \
+	-DSYS_SGX_DEV_NAME="\"$(PVRSRV_MODNAME)\""
+
+# ccflags-y += \
+	-DSUPPORT_DRM_MODESET
+
+ccflags-y += \
+	-DDEBUG \
+	-DPVRSRV_NEED_PVR_ASSERT \
+	-DPVRSRV_NEED_PVR_TRACE \
+	-DPVRSRV_NEED_PVR_DPF \
+	-DPVR_NO_OMAP_TIMER
+
+ccflags-y += \
+	-DDEBUG_LINUX_MEMORY_ALLOCATIONS \
+	-DDEBUG_LINUX_MEM_AREAS \
+	-DDEBUG_LINUX_MMAP_AREAS \
+	-DDEBUG_BRIDGE_KM \
+	-DDEBUG_TRACE_BRIDGE_KM
 
 obj-$(CONFIG_PVR_SGX) += pvrsrvkm.o
 
